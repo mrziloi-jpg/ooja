@@ -50,7 +50,7 @@ const countOf = Object.fromEntries(counts);
         <form method="post" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">
           <input type="hidden" name="id" value={r.id} />
           <label class="sr-only" for={`reply-${r.id}`}>پاسخ به نظر</label>
-          <input id={`reply-${r.id}`} class="input" name="reply" value={r.reply ?? ''} placeholder="پاسخ عمومی LUMIÈRE (اختیاری)" style="flex:1 1 240px" />
+          <input id={`reply-${r.id}`} class="input" name="reply" value={r.reply ?? ''} placeholder="پاسخ عمومی OOJA SHOP (اختیاری)" style="flex:1 1 240px" />
           {tab !== 'approved' && <button class="btn btn-dark btn-sm" name="action" value="approve">تأیید و انتشار</button>}
           {tab === 'approved' && <button class="btn btn-line btn-sm" name="action" value="reply">ذخیره‌ی پاسخ</button>}
           {tab !== 'rejected' && <button class="btn btn-danger btn-sm" name="action" value="reject">{tab === 'approved' ? 'حذف از سایت' : 'رد'}</button>}

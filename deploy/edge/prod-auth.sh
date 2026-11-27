@@ -15,7 +15,7 @@ case "${1:-}" in
     mkdir -p "$EDGE_DIR/state"
     cat > "$state" <<'EOF'
 # Written by deploy/edge/prod-auth.sh. Delete (prod-auth.sh off) to launch.
-auth_basic "LUMIERE - pre-launch";
+auth_basic "OOJA SHOP - pre-launch";
 auth_basic_user_file /etc/nginx/auth/prod.htpasswd;
 EOF
     edge_reload || { rm -f "$state"; die "could not apply the lock; production left unchanged"; }

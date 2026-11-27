@@ -20,7 +20,7 @@ if (Astro.request.method === 'POST') {
     const reply = str(f.get('reply')).slice(0, 600);
     if (reply.length < 2) return Astro.redirect(`/admin/messages?tab=${tab}&err=${encodeURIComponent('متن پاسخ خالی است.')}`, 303);
     const [m] = await db.update(s.supportMessages).set({ reply, status: 'answered', answeredAt: new Date() }).where(eq(s.supportMessages.id, id)).returning();
-    if (m) notify(m.phone, `پاسخ LUMIÈRE به پیام ${code(m.id)}:\n${reply}`);
+    if (m) notify(m.phone, `پاسخ OOJA SHOP به پیام ${code(m.id)}:\n${reply}`);
     msg = 'پاسخ پیامک شد.';
   } else if (action === 'close' || action === 'reopen') {
     await db.update(s.supportMessages).set({ status: action === 'close' ? 'closed' : 'open' }).where(eq(s.supportMessages.id, id));

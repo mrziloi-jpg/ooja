@@ -1,4 +1,5 @@
 ---
+import Logo from './Logo.astro';
 import { getCatalog } from '~/lib/catalog';
 import { getStore } from '~/lib/settings';
 interface Props { active?: string }
@@ -32,7 +33,7 @@ const links = [
       <button class="icon-btn menu-btn" type="button" aria-label="باز کردن منو" aria-expanded="false" aria-controls="mobile-menu" data-menu-toggle>
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"></path></svg>
       </button>
-      <a href="/" class="en" style="font-size:22px;font-weight:700;letter-spacing:.02em" aria-label="LUMIÈRE — صفحه اصلی">LUMIÈRE<span style="color:#9A9A98">.</span></a>
+      <a href="/" aria-label="OOJA SHOP — صفحه اصلی" style="display:inline-flex;color:#111111"><Logo size={40} class="hdr-logo" /></a>
       <nav class="nav-links" aria-label="منوی اصلی" style="gap:26px;align-items:center">
         <div class="mega-wrap">
           <a class:list={['navbtn', { on: active === 'shop' }]} href="/shop">مراقبت پوست

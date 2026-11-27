@@ -11,7 +11,7 @@ const list = cat.ingredients;
 const site = config.siteUrl.replace(/\/$/, '');
 const jsonLd = [
   {
-    '@context': 'https://schema.org', '@type': 'DefinedTermSet', name: 'واژه‌نامه‌ی ترکیبات مراقبت پوست LUMIÈRE', url: `${site}/ingredients`, inLanguage: 'fa-IR',
+    '@context': 'https://schema.org', '@type': 'DefinedTermSet', name: 'واژه‌نامه‌ی ترکیبات مراقبت پوست OOJA SHOP', url: `${site}/ingredients`, inLanguage: 'fa-IR',
     hasDefinedTerm: list.map((g) => ({ '@type': 'DefinedTerm', name: g.nameFa, alternateName: g.nameEn, description: g.does, url: `${site}/ingredients/${g.slug}` })),
   },
   {

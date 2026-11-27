@@ -31,7 +31,7 @@ const FAQ: [string, string, string][] = [
   ['account', 'رمز عبور ندارم؛ چطور وارد شوم؟', 'ورود فقط با شماره‌ی موبایل و کد یک‌بارمصرف پیامکی انجام می‌شود؛ نیازی به رمز عبور نیست.'],
   ['account', 'چطور شماره‌ی موبایلم را تغییر دهم؟', 'با پشتیبانی تماس بگیرید تا پس از تأیید هویت، شماره‌ی جدید را ثبت کنیم.'],
   ['account', 'چطور پیامک‌های تبلیغاتی را لغو کنم؟', 'در حساب کاربری، بخش «اطلاعات حساب»، گزینه‌ی پیامک تخفیف‌ها را خاموش کنید یا به پیامک‌ها «لغو۱۱» پاسخ دهید. پیامک وضعیت سفارش همچنان ارسال می‌شود.'],
-  ['product', 'محصولات شما اصل هستند؟', 'همه‌ی محصولات مستقیماً از LUMIÈRE عرضه می‌شوند. کد ثبت سازمان غذا و دارو (IRC) هر محصول در صفحه‌ی همان محصول درج شده است.'],
+  ['product', 'محصولات شما اصل هستند؟', 'همه‌ی محصولات مستقیماً از OOJA SHOP عرضه می‌شوند. کد ثبت سازمان غذا و دارو (IRC) هر محصول در صفحه‌ی همان محصول درج شده است.'],
   ['product', 'تاریخ انقضای محصولات چقدر است؟', 'تاریخ تولید و انقضا روی جعبه درج شده است. پس از باز کردن، مدت مصرف با نماد PAO (مثلاً 12M) روی بسته مشخص شده است.'],
   ['product', 'کدام محصول برای پوست من مناسب است؟', 'تست ۶۰ ثانیه‌ای پوست روتین مناسب شما را پیشنهاد می‌دهد. برای سؤال‌های دقیق‌تر، مشاوره‌ی رایگان ۱۵ دقیقه‌ای رزرو کنید.'],
 ];
@@ -80,14 +80,14 @@ const site = config.siteUrl.replace(/\/$/, '');
 const jsonLd = [
   { '@context': 'https://schema.org', '@type': 'FAQPage', mainEntity: FAQ.map(([, q, a]) => ({ '@type': 'Question', name: q, acceptedAnswer: { '@type': 'Answer', text: a } })) },
   {
-    '@context': 'https://schema.org', '@type': 'Organization', name: 'LUMIÈRE', url: site,
+    '@context': 'https://schema.org', '@type': 'Organization', name: 'OOJA SHOP', url: site,
     contactPoint: { '@type': 'ContactPoint', contactType: 'customer support', availableLanguage: 'fa', ...(store.supportPhone ? { telephone: store.supportPhone } : {}), ...(st.supportEmail ? { email: st.supportEmail } : {}) },
   },
 ];
 // Public, unchanging GETs are cached; tracking results and confirmations are personal.
 const cacheable = Astro.request.method === 'GET' && !Astro.url.search;
 ---
-<Layout title="مرکز پشتیبانی — پیگیری سفارش، ارسال و مرجوعی" description={`پاسخ سؤالات متداول درباره‌ی ارسال، مرجوعی، پرداخت و حساب کاربری LUMIÈRE. پیگیری سفارش بدون ورود و تماس با پشتیبانی.`} active="help" jsonLd={jsonLd} cache={cacheable ? 300 : undefined} noindex={!cacheable}>
+<Layout title="مرکز پشتیبانی — پیگیری سفارش، ارسال و مرجوعی" description={`پاسخ سؤالات متداول درباره‌ی ارسال، مرجوعی، پرداخت و حساب کاربری OOJA SHOP. پیگیری سفارش بدون ورود و تماس با پشتیبانی.`} active="help" jsonLd={jsonLd} cache={cacheable ? 300 : undefined} noindex={!cacheable}>
   <section style="background:#F4F4F2">
     <div class="wrap" style="padding-top:64px;padding-bottom:56px;display:flex;flex-direction:column;gap:18px;align-items:flex-start">
       <p class="kicker" style="font-size:13px">مرکز پشتیبانی</p>

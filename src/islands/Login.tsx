@@ -62,7 +62,7 @@ export default function Login({ next }: { next: string }) {
           </label>
           {err && <p role="alert" class="err-t" style="margin:0">{err}</p>}
           <button type="submit" class="btn btn-dark" disabled={busy}>{busy ? 'در حال ارسال…' : 'دریافت کد تأیید'}</button>
-          <p style="margin:0;font-size:12px;line-height:1.9;color:#5C5C5C">با ورود، <a href="/terms" style="text-decoration:underline">قوانین و حریم خصوصی</a> LUMIÈRE را می‌پذیرید.</p>
+          <p style="margin:0;font-size:12px;line-height:1.9;color:#5C5C5C">با ورود، <a href="/terms" style="text-decoration:underline">قوانین و حریم خصوصی</a> OOJA SHOP را می‌پذیرید.</p>
         </form>
       )}
 

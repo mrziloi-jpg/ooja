@@ -1,4 +1,4 @@
-# Deploying LUMIÈRE: production + staging on one server
+# Deploying OOJA SHOP: production + staging on one server
 
 Instructions for the person or agent who deploys and runs the site. Read the whole file before running anything. Values marked **ASK** come from the project owner: never invent domains, phone numbers, credentials or a backup destination.
 

@@ -1,6 +1,6 @@
-# LUMIÈRE — skincare store
+# OOJA SHOP — skincare store
 
-Persian (RTL) e-commerce site built from the LUMIÈRE design canvas, made to be hosted on a single server inside Iran.
+Persian (RTL) e-commerce site built from the original design canvas, made to be hosted on a single server inside Iran.
 
 ## Stack
 

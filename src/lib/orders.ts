@@ -108,7 +108,7 @@ export async function placeOrder(cartId: string, input: CheckoutInput, userId: n
     const pay = await requestPayment({
       orderCode: order.code, amount: payable, phone: order.phone,
       callbackUrl: `${config.siteUrl.replace(/\/$/, '')}/checkout/callback`,
-      description: `سفارش ${order.code} از LUMIÈRE`,
+      description: `سفارش ${order.code} از OOJA SHOP`,
     });
     await db.update(s.orders).set({ gatewayAuthority: pay.authority }).where(eq(s.orders.id, order.id));
     return { ok: true, redirect: pay.redirectUrl, code: order.code };
@@ -135,7 +135,7 @@ async function finalizeOrder(orderId: number, cartId: string | null) {
   if (cartId) await clearCart(cartId);
   // Also clear the cart by user (the callback arrives on a fresh request that still has the cookie, but be safe).
   if (o.userId) await db.delete(s.cartItems).where(inArray(s.cartItems.cartId, db.select({ id: s.carts.id }).from(s.carts).where(eq(s.carts.userId, o.userId))));
-  notify(o.phone, `سفارش ${o.code} در LUMIÈRE ثبت شد. پیگیری: ${config.siteUrl}/account/orders`);
+  notify(o.phone, `سفارش ${o.code} در OOJA SHOP ثبت شد. پیگیری: ${config.siteUrl}/account/orders`);
 }
 
 async function markPaid(orderId: number, ref: string) {

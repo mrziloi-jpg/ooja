@@ -38,7 +38,7 @@ export const POST: APIRoute = async (ctx) => {
     }).returning();
     if (!u.firstName) await db.update(s.users).set({ firstName: b.name.split(' ')[0] }).where(eq(s.users.id, u.id));
     const when = jalaliDate(startsAt, { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
-    notify(u.phone, `وقت مشاوره‌ی LUMIÈRE رزرو شد: ${KIND_LABEL[b.kind]}، ${when}. کد: ${bookingCode(c.id)}. یک ساعت قبل یادآوری می‌کنیم.`);
+    notify(u.phone, `وقت مشاوره‌ی OOJA SHOP رزرو شد: ${KIND_LABEL[b.kind]}، ${when}. کد: ${bookingCode(c.id)}. یک ساعت قبل یادآوری می‌کنیم.`);
     return json({ id: c.id, code: bookingCode(c.id), startsAt: c.startsAt, kind: c.kind, phone: u.phone });
   } catch (e) {
     if (isUniqueViolation(e)) return fail('این ساعت همین الان رزرو شد. لطفاً ساعت دیگری انتخاب کنید.', 409);

@@ -22,11 +22,11 @@ if (Astro.request.method === 'POST') {
     const link = str(f.get('meetingLink'));
     if (link && !/^https?:\/\/\S+$/.test(link)) return Astro.redirect(`/admin/consultations?day=${day}&err=${encodeURIComponent('لینک باید با http:// یا https:// شروع شود.')}`, 303);
     const [c] = await db.update(s.consultations).set({ meetingLink: link || null }).where(eq(s.consultations.id, id)).returning();
-    if (c && link) notify(c.phone, `لینک جلسه‌ی مشاوره‌ی LUMIÈRE (${jalaliDate(c.startsAt, { month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}): ${link}`);
+    if (c && link) notify(c.phone, `لینک جلسه‌ی مشاوره‌ی OOJA SHOP (${jalaliDate(c.startsAt, { month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}): ${link}`);
     return Astro.redirect(`/admin/consultations?day=${day}&ok=${encodeURIComponent(link ? 'لینک ذخیره و برای مشتری پیامک شد.' : 'لینک حذف شد.')}`, 303);
   } else if (['done', 'noshow', 'canceled'].includes(action)) {
     const [c] = await db.update(s.consultations).set({ status: action }).where(eq(s.consultations.id, id)).returning();
-    if (c && action === 'canceled') notify(c.phone, `وقت مشاوره‌ی شما در LUMIÈRE (${jalaliDate(c.startsAt, { month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}) لغو شد. برای رزرو دوباره به سایت مراجعه کنید.`);
+    if (c && action === 'canceled') notify(c.phone, `وقت مشاوره‌ی شما در OOJA SHOP (${jalaliDate(c.startsAt, { month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}) لغو شد. برای رزرو دوباره به سایت مراجعه کنید.`);
   }
   return Astro.redirect(`/admin/consultations?day=${day}`, 303);
 }

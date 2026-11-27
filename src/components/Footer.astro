@@ -1,4 +1,5 @@
 ---
+import Logo from './Logo.astro';
 import { fa } from '~/lib/format';
 import { getSettings } from '~/lib/settings';
 const st = await getSettings();
@@ -8,7 +9,7 @@ const year = new Intl.DateTimeFormat('en-u-ca-persian', { year: 'numeric', timeZ
   <div class="wrap" style="padding-top:64px;padding-bottom:32px">
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:40px;padding-bottom:48px">
       <div style="display:flex;flex-direction:column;gap:16px">
-        <p class="en r" style="margin:0;font-size:22px;font-weight:700">LUMIÈRE<span style="color:#9A9A98">.</span></p>
+        <p style="margin:0"><Logo size={44} /></p>
         <p style="margin:0;font-size:13px;line-height:2;color:#4A4A4A">فرمول‌های بالینی با صداقت. مراقبت پوست و آرایش پوست‌محور.</p>
         {(st.instagram || st.telegramChannel) && (
           <div style="display:flex;gap:8px">
@@ -59,7 +60,7 @@ const year = new Intl.DateTimeFormat('en-u-ca-persian', { year: 'numeric', timeZ
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="M2 12h20M12 2a15 15 0 0 1 0 20M12 2a15 15 0 0 0 0 20"></path></svg>
           ایران · فارسی · تومان
         </span>
-        <span>© {fa(year)} <span class="en">LUMIÈRE</span> — تمامی حقوق محفوظ است.</span>
+        <span>© {fa(year)} <span class="en">OOJA SHOP</span> — تمامی حقوق محفوظ است.</span>
       </div>
       <div style="display:flex;flex-wrap:wrap;gap:20px">
         <a class="flink" style="font-size:13px" href="/privacy">حریم خصوصی</a>

@@ -45,7 +45,7 @@ async function remindConsultations() {
   for (const r of rows) {
     const time = new Intl.DateTimeFormat('fa-IR', { timeZone: 'Asia/Tehran', hour: '2-digit', minute: '2-digit' }).format(new Date(r.starts_at));
     const how = r.meeting_link ? `لینک جلسه: ${r.meeting_link}` : r.kind === 'chat' ? 'کارشناس ما در همین شماره با شما چت را شروع می‌کند.' : 'کارشناس ما با همین شماره با شما تماس می‌گیرد.';
-    notify(r.phone, `یادآوری: مشاوره‌ی LUMIÈRE ساعت ${time} امروز. ${how}`);
+    notify(r.phone, `یادآوری: مشاوره‌ی OOJA SHOP ساعت ${time} امروز. ${how}`);
   }
 }
 
@@ -77,7 +77,7 @@ async function remindAbandonedCarts() {
       AND EXISTS (SELECT 1 FROM cart_items ci WHERE ci.cart_id = c.id)
     RETURNING c.id, u.phone, u.first_name`;
   for (const r of rows) {
-    notify(r.phone, `${r.first_name ? r.first_name + ' عزیز، ' : ''}محصولات انتخابی‌تان در سبد LUMIÈRE منتظر شماست: ${config.siteUrl}/cart\nلغو۱۱`);
+    notify(r.phone, `${r.first_name ? r.first_name + ' عزیز، ' : ''}محصولات انتخابی‌تان در سبد OOJA SHOP منتظر شماست: ${config.siteUrl}/cart\nلغو۱۱`);
   }
 }
 

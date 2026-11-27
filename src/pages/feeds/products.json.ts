@@ -21,7 +21,7 @@ export const GET: APIRoute = async ({ url }) => {
     category_name: p.categoryName,
     image_link: p.image ? `${site}${p.image}-960.webp` : null,
     short_desc: p.tagline,
-    spec: { brand: 'LUMIÈRE', size: v.label },
+    spec: { brand: 'OOJA SHOP', size: v.label },
   })));
   return new Response(JSON.stringify({
     count: items.length, max_pages: Math.ceil(items.length / size), products: items.slice((page - 1) * size, page * size),

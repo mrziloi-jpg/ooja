@@ -26,16 +26,16 @@ const site = config.siteUrl.replace(/\/$/, '');
 
 const jsonLd = [
   {
-    '@context': 'https://schema.org', '@type': 'Organization', name: 'LUMIÈRE', url: site, logo: `${site}/favicon.svg`,
+    '@context': 'https://schema.org', '@type': 'Organization', name: 'OOJA SHOP', url: site, logo: `${site}/logo.png`,
     sameAs: [],
   },
   {
-    '@context': 'https://schema.org', '@type': 'WebSite', name: 'LUMIÈRE', url: site, inLanguage: 'fa-IR',
+    '@context': 'https://schema.org', '@type': 'WebSite', name: 'OOJA SHOP', url: site, inLanguage: 'fa-IR',
     potentialAction: { '@type': 'SearchAction', target: `${site}/shop?q={search_term_string}`, 'query-input': 'required name=search_term_string' },
   },
 ];
 ---
-<Layout title="LUMIÈRE — فرمول‌های بالینی با صداقت" description="مراقبت پوست با ترکیبات فعال اثبات‌شده و درصد دقیق روی برچسب: نیاسینامید، رتینال، سرامید، ویتامین C. بدون عطر، وگان، با ارسال به سراسر ایران." jsonLd={jsonLd} cache={60}>
+<Layout title="OOJA SHOP — فرمول‌های بالینی با صداقت" description="مراقبت پوست با ترکیبات فعال اثبات‌شده و درصد دقیق روی برچسب: نیاسینامید، رتینال، سرامید، ویتامین C. بدون عطر، وگان، با ارسال به سراسر ایران." jsonLd={jsonLd} cache={60}>
 
   <!-- Hero -->
   <section class="wrap" style="padding-top:20px;padding-bottom:72px">

@@ -31,7 +31,7 @@ const {
 
 const site = config.siteUrl.replace(/\/$/, '');
 const canonicalUrl = site + canonical;
-const fullTitle = title.includes('LUMIÈRE') ? title : `${title} | LUMIÈRE`;
+const fullTitle = title.includes('OOJA SHOP') ? title : `${title} | OOJA SHOP`;
 const ld = jsonLd ? (Array.isArray(jsonLd) ? jsonLd : [jsonLd]) : [];
 
 if (cache) {
@@ -51,8 +51,9 @@ const path = Astro.url.pathname;
   {noindex && <meta name="robots" content="noindex, follow" />}
   <meta name="theme-color" content="#111111" />
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
   <link rel="preload" href={vazirArabic} as="font" type="font/woff2" crossorigin />
-  <meta property="og:site_name" content="LUMIÈRE" />
+  <meta property="og:site_name" content="OOJA SHOP" />
   <meta property="og:locale" content="fa_IR" />
   <meta property="og:type" content={ogType} />
   <meta property="og:title" content={fullTitle} />

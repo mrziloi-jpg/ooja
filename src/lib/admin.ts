@@ -38,7 +38,7 @@ export async function navCounts() {
 }
 
 const SMS: Partial<Record<OrderStatus, (code: string, track: string | null) => string>> = {
-  ready: (c) => `سفارش ${c} در LUMIÈRE آماده‌ی ارسال است.`,
+  ready: (c) => `سفارش ${c} در OOJA SHOP آماده‌ی ارسال است.`,
   shipped: (c, t) => `سفارش ${c} ارسال شد.${t ? ` کد رهگیری: ${t}` : ''}\nپیگیری: ${config.siteUrl}/account/orders`,
   delivered: (c) => `سفارش ${c} تحویل شد. از خریدتان ممنونیم؛ نظرتان را در سایت با ما در میان بگذارید.`,
   canceled: (c) => `سفارش ${c} لغو شد. در صورت پرداخت، مبلغ طی ۷۲ ساعت بازگردانده می‌شود.`,
