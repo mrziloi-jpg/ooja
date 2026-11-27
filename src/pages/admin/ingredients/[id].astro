@@ -1,0 +1,95 @@
+---
+import AdminLayout from '~/layouts/AdminLayout.astro';
+import { eq } from 'drizzle-orm';
+import { db, schema as s } from '~/db';
+import { invalidateCatalog } from '~/lib/catalog';
+import { isUniqueViolation, num, str } from '~/lib/admin';
+import { FUNCTIONS } from '~/lib/ingredients';
+
+const isNew = Astro.params.id === 'new';
+const id = isNew ? null : Number(Astro.params.id);
+if (!isNew && !Number.isInteger(id)) return new Response(null, { status: 404 });
+let error: string | null = null;
+let submitted: FormData | null = null;
+
+if (Astro.request.method === 'POST') {
+  const f = await Astro.request.formData();
+  submitted = f;
+  const nameEn = str(f.get('nameEn'));
+  const nameFa = str(f.get('nameFa'));
+  const slug = (str(f.get('slug')) || nameEn).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  const does = str(f.get('does'));
+  if (!nameEn || !nameFa || !does) error = 'نام لاتین، نام فارسی و «چه می‌کند» لازم است.';
+  else if (!slug) error = 'نامک (slug) معتبر نیست.';
+  else {
+    const values = {
+      slug, nameEn, nameFa, does,
+      sym: str(f.get('sym')).slice(0, 3) || null, pct: str(f.get('pct')) || null,
+      functions: f.getAll('functions').map(String).filter((x) => FUNCTIONS.some((y) => y[0] === x)),
+      goodFor: str(f.get('goodFor')) || null, whenToUse: str(f.get('whenToUse')) || null, pregnancy: str(f.get('pregnancy')) || null,
+      body: str(f.get('body')) || null, sort: num(f.get('sort')) ?? 0, updatedAt: new Date(),
+    };
+    try {
+      let savedId = id;
+      if (id) await db.update(s.ingredients).set(values).where(eq(s.ingredients.id, id));
+      else [{ id: savedId }] = await db.insert(s.ingredients).values(values).returning({ id: s.ingredients.id });
+      invalidateCatalog();
+      return Astro.redirect(`/admin/ingredients/${savedId}?ok=${encodeURIComponent('ذخیره شد.')}`, 303);
+    } catch (e) {
+      if (!isUniqueViolation(e)) throw e;
+      error = 'این نامک برای ترکیب دیگری استفاده شده است.';
+    }
+  }
+}
+
+const [g] = id ? await db.select().from(s.ingredients).where(eq(s.ingredients.id, id)) : [];
+if (id && !g) return new Response(null, { status: 404 });
+const v = (k: string, stored: unknown) => (submitted?.has(k) ? String(submitted.get(k)) : String(stored ?? ''));
+const funcs = submitted ? submitted.getAll('functions').map(String) : g?.functions ?? [];
+---
+<AdminLayout title={isNew ? 'ترکیب جدید' : `ویرایش: ${g.nameEn}`} section="ingredients">
+  {error && <p class="flash err" role="alert">{error}</p>}
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:12px">
+    <a href="/admin/ingredients" class="rowbtn">→ بازگشت به واژه‌نامه</a>
+    {g && <a href={`/ingredients/${g.slug}`} target="_blank" class="rowbtn">مشاهده در سایت</a>}
+  </div>
+  <form method="post" style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start">
+    <div style="flex:999 1 560px;min-width:0;display:flex;flex-direction:column;gap:16px">
+      <section class="panel">
+        <div class="ph"><h2>اطلاعات اصلی</h2></div>
+        <div class="pb grid2">
+          <label class="field">نام لاتین<input class="input en" name="nameEn" required value={v('nameEn', g?.nameEn)} style="text-align:left" /></label>
+          <label class="field">نام فارسی <span class="hint">نام کامل، مثلاً «نیاسینامید (ویتامین B3)»</span><input class="input" name="nameFa" required value={v('nameFa', g?.nameFa)} /></label>
+          <label class="field full">چه می‌کند <span class="hint">یک یا دو جمله؛ در کارت، بالای صفحه و توضیحات گوگل نمایش داده می‌شود</span><textarea class="input" name="does" rows="3" required>{v('does', g?.does)}</textarea></label>
+          <label class="field">مناسب برای<input class="input" name="goodFor" value={v('goodFor', g?.goodFor)} placeholder="چرب، مختلط، مستعد آکنه" /></label>
+          <label class="field">زمان مصرف<input class="input" name="whenToUse" value={v('whenToUse', g?.whenToUse)} placeholder="صبح و شب" /></label>
+          <label class="field">غلظت در محصولات ما<input class="input" name="pct" value={v('pct', g?.pct)} placeholder="۱۰٪" /></label>
+          <label class="field">بارداری<input class="input" name="pregnancy" value={v('pregnancy', g?.pregnancy)} placeholder="معمولاً بی‌خطر*" /></label>
+          <fieldset class="full" style="border:0;padding:0;margin:0"><legend style="font-size:12px;font-weight:600;margin-bottom:6px">کارکرد (فیلترهای صفحه‌ی واژه‌نامه)</legend>
+            <div style="display:flex;flex-wrap:wrap;gap:4px 16px">{FUNCTIONS.map(([k, l]) => <label class="cbx"><input type="checkbox" name="functions" value={k} checked={funcs.includes(k)} />{l}</label>)}</div>
+          </fieldset>
+        </div>
+      </section>
+      <section class="panel">
+        <div class="ph"><h2>مقاله</h2><span class="mute" style="font-size:12px">پاراگراف‌ها را با یک خط خالی جدا کنید</span></div>
+        <div class="pb">
+          <label class="sr-only" for="body">متن مقاله</label>
+          <textarea id="body" class="input" name="body" rows="16" style="line-height:2" placeholder="مثلاً: نیاسینامید چیست؟ … چه فوایدی دارد؟ … چطور در روتین استفاده کنیم؟ …">{v('body', g?.body)}</textarea>
+          <p class="mute" style="margin:8px 0 0;font-size:12px;line-height:1.9">متن را خودتان یا کارشناس پوست بنویسید؛ از کپی متن سایت‌های دیگر پرهیز کنید (گوگل محتوای تکراری را جریمه می‌کند). سؤالات متداول صفحه به‌طور خودکار از فیلدهای بالا ساخته می‌شوند.</p>
+        </div>
+      </section>
+    </div>
+    <div style="flex:1 1 280px;max-width:360px;display:flex;flex-direction:column;gap:16px;position:sticky;top:84px">
+      <section class="panel">
+        <div class="ph"><h2>انتشار</h2></div>
+        <div class="pb" style="display:flex;flex-direction:column;gap:12px">
+          <label class="field">نامک آدرس (slug)<input class="input en" name="slug" value={v('slug', g?.slug)} style="text-align:left" placeholder="niacinamide" /></label>
+          <label class="field">نماد کارت (۲ حرف)<input class="input en" name="sym" maxlength="3" value={v('sym', g?.sym)} style="text-align:left" placeholder="Ni" /></label>
+          <label class="field">ترتیب نمایش<input class="input en" name="sort" inputmode="numeric" value={v('sort', g?.sort ?? 0)} style="text-align:left" /></label>
+          <button class="btn btn-dark" style="width:100%">ذخیره</button>
+          <p class="mute" style="margin:0;font-size:12px;line-height:1.8">برای ارتباط محصول با این ترکیب، از صفحه‌ی ویرایش محصول بخش «ترکیبات کلیدی» را علامت بزنید. قوانین سازگاری در <span class="en">src/lib/ingredients.ts</span> تعریف شده‌اند.</p>
+        </div>
+      </section>
+    </div>
+  </form>
+</AdminLayout>

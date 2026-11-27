@@ -1,0 +1,106 @@
+---
+import AccountLayout from '~/layouts/AccountLayout.astro';
+import { eq } from 'drizzle-orm';
+import { db, schema as s } from '~/db';
+import { str } from '~/lib/admin';
+import { getCatalog } from '~/lib/catalog';
+import { fa, money, SKIN_TYPES } from '~/lib/format';
+import { buildRoutine, GOALS } from '~/lib/routine';
+import { parseAnswers, profileTitle, quizRoutine, quizTips, STEP_ROLE } from '~/lib/quiz';
+import { jalaliDate } from '~/lib/format';
+
+const u = Astro.locals.user!;
+if (Astro.request.method === 'POST') {
+  const f = await Astro.request.formData();
+  if (f.get('action') === 'reminders') {
+    await db.update(s.users).set({ refillReminders: f.get('refillReminders') === 'on' }).where(eq(s.users.id, u.id));
+  } else {
+    // Choosing skin type/concern by hand replaces the quiz result as "my routine".
+    const skin = str(f.get('skin')), goal = str(f.get('goal'));
+    if (skin in SKIN_TYPES && GOALS.some((g) => g.id === goal)) await db.update(s.users).set({ skinType: skin, goal, quiz: null }).where(eq(s.users.id, u.id));
+  }
+  return Astro.redirect('/account/routine', 303);
+}
+
+const cat = await getCatalog();
+// The saved quiz result wins; otherwise the simple skin type + concern builder.
+const quiz = parseAnswers(u.quiz);
+const has = !!quiz || !!(u.skinType && u.goal && GOALS.some((g) => g.id === u.goal));
+const simple = !quiz && has ? buildRoutine(u.skinType!, u.goal!) : null;
+const r = quiz ? quizRoutine(quiz, 'full') : simple;
+const title = quiz ? profileTitle(quiz) : simple ? `پوست ${SKIN_TYPES[u.skinType!]}، ${simple.goal.label}` : '';
+const tips = quiz ? quizTips(quiz, quiz ? quizRoutine(quiz, 'full').pm : []) : [];
+const product = (slug: string) => cat.bySlug.get(slug);
+const unique = r ? [...new Set([...r.am, ...r.pm])].map(product).filter((p) => p && p.inStock) : [];
+const total = unique.reduce((n, p) => n + p!.variants.find((v) => v.stock > 0)!.price, 0);
+---
+<AccountLayout title="روتین من" section="routine">
+  <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:12px">
+    <h1 class="acc-h">روتین من{r && <> · {title}</>}</h1>
+    <a class="btn btn-line" href="/quiz">انجام تست کامل پوست</a>
+  </div>
+
+  <form method="post" class="card" style="flex-direction:row;flex-wrap:wrap;align-items:flex-end;gap:12px">
+    <label class="field" style="flex:1 1 180px">نوع پوست
+      <select class="input" name="skin" required>
+        {!u.skinType && <option value="">انتخاب کنید</option>}
+        {Object.entries(SKIN_TYPES).map(([k, l]) => <option value={k} selected={u.skinType === k}>{l}</option>)}
+      </select>
+    </label>
+    <label class="field" style="flex:1 1 180px">مهم‌ترین نگرانی
+      <select class="input" name="goal" required>
+        {!u.goal && <option value="">انتخاب کنید</option>}
+        {GOALS.map((g) => <option value={g.id} selected={u.goal === g.id}>{g.label}</option>)}
+      </select>
+    </label>
+    <button class="btn btn-dark">{has ? 'به‌روزرسانی روتین' : 'ساخت روتین'}</button>
+  </form>
+
+  {quiz && u.quizAt && <p style="margin:0;font-size:13px;color:#5C5C5C">بر اساس تست پوست شما در {jalaliDate(u.quizAt)}. برای تغییر، تست را دوباره انجام دهید یا نوع پوست و نگرانی را دستی انتخاب کنید.</p>}
+  {r && (
+    <>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px">
+        {[['صبح', r.am], ['شب', r.pm]].map(([title, slugs]) => (
+          <div class="card">
+            <p style="margin:0;font-size:15px;font-weight:700">{title}</p>
+            {(slugs as string[]).map(product).filter(Boolean).map((p, i) => (
+              <div style="display:flex;gap:12px;align-items:center;padding-top:10px;border-top:1px solid #EFEFED">
+                <span style="flex:0 0 26px;height:26px;border:1px solid #111111;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700">{fa(i + 1)}</span>
+                <span style="display:flex;flex-direction:column;gap:2px"><span style="font-size:12px;color:#5C5C5C">{quiz ? STEP_ROLE[p!.slug] ?? p!.role : p!.role}</span><a class="en r" href={`/p/${p!.slug}`} style="font-size:14px;font-weight:600">{p!.nameEn}</a></span>
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+      {tips.length > 0 && (
+        <div style="background:#F4F4F2;padding:18px 20px;display:flex;flex-direction:column;gap:8px">
+          <p style="margin:0;font-size:15px;font-weight:700">نکته‌های شروع</p>
+          {tips.map((t) => <p style="margin:0;font-size:14px;line-height:1.9;color:#3A3A3A">— {t}</p>)}
+        </div>
+      )}
+      {unique.length > 0 && (
+        <div class="card" style="flex-direction:row;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:12px">
+          <p style="margin:0;font-size:14px;color:#5C5C5C">{fa(unique.length)} محصول · <span style="color:#111111;font-weight:700">{money(total)}</span></p>
+          <button type="button" class="btn btn-dark" data-add-routine={JSON.stringify(unique.map((p) => p!.variants.find((v) => v.stock > 0)!.id))}>افزودن کل روتین به سبد</button>
+        </div>
+      )}
+    </>
+  )}
+
+  <form method="post" class="card">
+    <input type="hidden" name="action" value="reminders" />
+    <label class="acc-switch" style="border-top:0;padding:0">
+      <span style="display:flex;flex-direction:column;gap:4px"><span style="font-size:15px;font-weight:700">یادآوری تمام شدن محصولات</span><span style="font-size:13px;color:#5C5C5C">حدود شش هفته بعد از تحویل هر سفارش، پیامک یادآوری می‌گیرید.</span></span>
+      <input type="checkbox" name="refillReminders" checked={u.refillReminders} role="switch" onchange="this.form.requestSubmit()" />
+    </label>
+    <noscript><button class="btn btn-line">ذخیره</button></noscript>
+  </form>
+</AccountLayout>
+
+<script>
+  import { addToCart } from '~/scripts/store';
+  document.querySelector<HTMLButtonElement>('[data-add-routine]')?.addEventListener('click', (e) => {
+    const ids: number[] = JSON.parse((e.currentTarget as HTMLElement).dataset.addRoutine!);
+    addToCart(ids.map((variantId) => ({ variantId, qty: 1 })), 'روتین شما به سبد اضافه شد');
+  });
+</script>

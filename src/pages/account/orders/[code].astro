@@ -1,0 +1,107 @@
+---
+import AccountLayout from '~/layouts/AccountLayout.astro';
+import { buyAgain, canRequestReturn, CUSTOMER_STATUS, getOrder, requestReturn, trackingSteps } from '~/lib/account';
+import { SHIP_LABELS, str } from '~/lib/admin';
+import { fa, jalaliDate, money } from '~/lib/format';
+
+const u = Astro.locals.user!;
+const code = Astro.params.code!;
+const REASONS: Record<string, string> = { sensitivity: 'حساسیت یا واکنش پوستی', damaged: 'آسیب‌دیدگی در ارسال', wrong: 'کالای اشتباه ارسال شده', other: 'سایر' };
+
+if (Astro.request.method === 'POST') {
+  const f = await Astro.request.formData();
+  const found = await getOrder(u, code);
+  if (!found) return Astro.redirect('/account/orders');
+  if (f.get('action') === 'buy_again') {
+    const n = await buyAgain(Astro.cookies, u, found.items.map(({ it }) => ({ variantId: it.variantId, qty: it.qty })));
+    return Astro.redirect(n ? '/cart' : `/account/orders/${code}?err=${encodeURIComponent('کالاهای این سفارش در حال حاضر موجود نیستند.')}`, 303);
+  }
+  if (f.get('action') === 'return') {
+    const reason = REASONS[str(f.get('reason'))] ?? REASONS.other;
+    const ok = await requestReturn(u, code, reason, str(f.get('note')));
+    const msg = ok ? 'درخواست مرجوعی ثبت شد. کارشناس ما ظرف ۲۴ ساعت کاری با شما تماس می‌گیرد.' : 'مهلت درخواست مرجوعی برای این سفارش تمام شده است.';
+    return Astro.redirect(`/account/orders/${code}?${ok ? 'ok' : 'err'}=${encodeURIComponent(msg)}`, 303);
+  }
+}
+
+const found = await getOrder(u, code);
+if (!found) return Astro.redirect('/account/orders');
+const { o, items, events } = found;
+const steps = trackingSteps(o, events);
+const status = CUSTOMER_STATUS[o.status];
+const returnable = canRequestReturn(o, events);
+---
+<AccountLayout title={`سفارش ${o.code}`} section="orders">
+  <a class="lnk" href="/account/orders" style="align-self:flex-start">→ بازگشت به سفارش‌ها</a>
+  <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:12px">
+    <h1 class="acc-h">سفارش <span class="en">{o.code}</span></h1>
+    <span class={`status ${status.cls}`}>{status.label}</span>
+  </div>
+  <p style="margin:0;font-size:14px;color:#3A3A3A">
+    ثبت‌شده در {jalaliDate(o.createdAt)} · ارسال با {SHIP_LABELS[o.shipMethod] ?? o.shipMethod}
+    {o.trackingCode && <> · کد رهگیری: <span class="en" style="font-weight:600">{o.trackingCode}</span></>}
+  </p>
+  {o.status === 'awaiting_payment' && <p style="margin:0;font-size:14px;color:#A3261B">پرداخت این سفارش کامل نشده است و به‌زودی لغو می‌شود.</p>}
+
+  <ol class="track" aria-label="وضعیت ارسال" style={`grid-template-columns:repeat(${steps.length},minmax(0,1fr))`}>
+    {steps.map((st) => (
+      <li style={`border-top-color:${st.reached ? '#111111' : '#E5E5E3'}`} aria-current={st.current ? 'step' : undefined}>
+        <span style={`font-size:13px;font-weight:${st.current ? 800 : 500};color:${st.reached ? '#111111' : '#9A9A98'}`}>{st.label}</span>
+        <span style="font-size:12px;color:#5C5C5C">{st.time}</span>
+      </li>
+    ))}
+  </ol>
+
+  <div style="display:flex;flex-wrap:wrap;gap:16px">
+    <div class="card" style="flex:2 1 360px">
+      <p style="margin:0;font-size:15px;font-weight:700">کالاها</p>
+      {items.map(({ it, glass, image, slug }) => (
+        <div style="display:flex;gap:12px;align-items:center;padding-top:10px;border-top:1px solid #EFEFED">
+          <a class="thumb" href={slug ? `/p/${slug}` : undefined} style="flex:0 0 56px;height:64px" aria-hidden="true" tabindex="-1">
+            {image ? <img src={`${image}-480.webp`} alt="" width="56" height="64" style="object-fit:cover" loading="lazy" /> : <span class="vial" style={`background:${glass ?? '#FFFFFF'}`}></span>}
+          </a>
+          <span style="flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:2px">
+            <span class="en r" style="font-size:14px;font-weight:600">{it.nameEn}</span>
+            <span style="font-size:12px;color:#5C5C5C">{it.label} · {fa(it.qty)} عدد</span>
+          </span>
+          <span style="font-size:14px;font-weight:700;white-space:nowrap">{money(it.price * it.qty)}</span>
+        </div>
+      ))}
+      <dl style="margin:0;display:flex;flex-direction:column;gap:6px;font-size:14px;border-top:1px solid #EFEFED;padding-top:10px">
+        <div style="display:flex;justify-content:space-between"><dt>جمع کالاها</dt><dd style="margin:0">{money(o.subtotal)}</dd></div>
+        {o.discount > 0 && <div style="display:flex;justify-content:space-between"><dt>تخفیف</dt><dd style="margin:0">− {money(o.discount)}</dd></div>}
+        <div style="display:flex;justify-content:space-between"><dt>ارسال</dt><dd style="margin:0">{o.shipCost ? money(o.shipCost) : 'رایگان'}</dd></div>
+        {o.creditUsed > 0 && <div style="display:flex;justify-content:space-between"><dt>اعتبار باشگاه</dt><dd style="margin:0">− {money(o.creditUsed)}</dd></div>}
+      </dl>
+      <div style="display:flex;justify-content:space-between;border-top:1px solid #111111;padding-top:12px;font-weight:800"><span>مبلغ کل</span><span>{money(o.total)}</span></div>
+    </div>
+    <div class="card" style="flex:1 1 260px">
+      <p style="margin:0;font-size:15px;font-weight:700">ارسال به</p>
+      <p style="margin:0;font-size:14px;line-height:1.9;color:#3A3A3A">{o.firstName} {o.lastName} · {o.province}، {o.city}، {o.address} · کد پستی <span class="en">{o.postal}</span></p>
+      <div style="display:flex;flex-direction:column;gap:8px;margin-top:auto">
+        <form method="post"><input type="hidden" name="action" value="buy_again" /><button class="btn btn-dark" style="width:100%">خرید دوباره‌ی همه</button></form>
+        {o.status !== 'awaiting_payment' && o.status !== 'canceled' && <a class="btn btn-line" href={`/account/orders/${o.code}/invoice`} target="_blank">مشاهده و چاپ فاکتور</a>}
+      </div>
+    </div>
+  </div>
+
+  {returnable && (
+    <details class="card" style="border-color:#111111">
+      <summary style="cursor:pointer;font-size:15px;font-weight:700">درخواست مرجوعی</summary>
+      <form method="post" style="display:flex;flex-direction:column;gap:12px;margin-top:12px">
+        <input type="hidden" name="action" value="return" />
+        <label class="field">دلیل
+          <select class="input" name="reason">{Object.entries(REASONS).map(([k, l]) => <option value={k}>{l}</option>)}</select>
+        </label>
+        <label class="field">توضیحات<textarea class="input" name="note" rows="3" maxlength="500" style="min-height:90px"></textarea></label>
+        <div><button class="btn btn-dark">ثبت درخواست</button></div>
+      </form>
+    </details>
+  )}
+</AccountLayout>
+
+<style>
+  .track { list-style: none; margin: 8px 0; padding: 0; display: grid; gap: 0; }
+  .track li { display: flex; flex-direction: column; gap: 8px; padding-top: 14px; border-top: 3px solid #E5E5E3; }
+  @media (max-width: 760px) { .track span { font-size: 11px !important; } }
+</style>

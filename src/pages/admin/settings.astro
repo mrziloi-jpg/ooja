@@ -1,0 +1,108 @@
+---
+import AdminLayout from '~/layouts/AdminLayout.astro';
+import { num, str } from '~/lib/admin';
+import { getSettings, saveSettings } from '~/lib/settings';
+import { LEGAL_DEFAULTS, LEGAL_TITLES, type LegalKey } from '~/lib/legal';
+
+let error: string | null = null;
+// Only http(s) links are stored for social profiles.
+const safeUrl = (v: string) => (/^https?:\/\/\S+$/.test(v) ? v.slice(0, 300) : '');
+if (Astro.request.method === 'POST') {
+  const f = await Astro.request.formData();
+  const prices = { post: num(f.get('post')), tipax: num(f.get('tipax')), courier: num(f.get('courier')) };
+  const freeShipFrom = num(f.get('freeShipFrom'));
+  const lowStock = num(f.get('lowStock'));
+  const lines = (k: string) => str(f.get(k)).split('\n').map((x) => x.trim()).filter(Boolean);
+  if (Object.values(prices).some((p) => p == null || p < 0) || freeShipFrom == null || freeShipFrom < 0 || lowStock == null || lowStock < 0) {
+    error = 'هزینه‌ها و آستانه‌ها باید عدد نامنفی باشند.';
+  } else if (!['gateway', 'cod', 'credit'].some((k) => f.get(`pay_${k}`) === 'on')) {
+    error = 'حداقل یک روش پرداخت باید فعال باشد.';
+  } else {
+    await saveSettings({
+      shipPrices: prices as { post: number; tipax: number; courier: number },
+      freeShipFrom, lowStock,
+      payments: { gateway: f.get('pay_gateway') === 'on', cod: f.get('pay_cod') === 'on', credit: f.get('pay_credit') === 'on' },
+      supportPhone: str(f.get('supportPhone')),
+      promos: lines('promos').slice(0, 6),
+      experts: lines('experts').slice(0, 20),
+      supportEmail: str(f.get('supportEmail')).slice(0, 120),
+      supportTelegram: str(f.get('supportTelegram')).slice(0, 120),
+      supportHours: str(f.get('supportHours')).slice(0, 120),
+      instagram: safeUrl(str(f.get('instagram'))),
+      telegramChannel: safeUrl(str(f.get('telegramChannel'))),
+      foundedYear: str(f.get('foundedYear')).slice(0, 10),
+      // Saving the unchanged draft keeps it marked as a draft (stored empty).
+      ...Object.fromEntries((Object.keys(LEGAL_DEFAULTS) as LegalKey[]).map((k) => {
+        const v = str(f.get(k)).replace(/\r\n/g, '\n');
+        return [k, v === LEGAL_DEFAULTS[k].trim() ? '' : v.slice(0, 30000)];
+      })),
+    });
+    return Astro.redirect(`/admin/settings?ok=${encodeURIComponent('تنظیمات ذخیره شد. تغییرات تا یک دقیقه‌ی دیگر روی سایت دیده می‌شود.')}`, 303);
+  }
+}
+const st = await getSettings();
+const drafts = (Object.keys(LEGAL_DEFAULTS) as LegalKey[]).filter((k) => !st[k]);
+const PAY: [keyof typeof st.payments, string][] = [['gateway', 'پرداخت اینترنتی (درگاه شاپرک)'], ['cod', 'پرداخت در محل (پیک تهران)'], ['credit', 'اعتبار باشگاه مشتریان']];
+---
+<AdminLayout title="تنظیمات" section="settings">
+  {error && <p class="flash err" role="alert">{error}</p>}
+  <form method="post" style="display:flex;flex-direction:column;gap:16px;max-width:900px">
+    <section class="panel">
+      <div class="ph"><h2>ارسال</h2></div>
+      <div class="pb" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px">
+        <label class="field">پست پیشتاز (تومان)<input class="input en" name="post" inputmode="numeric" value={st.shipPrices.post} style="text-align:left" /></label>
+        <label class="field">تیپاکس (تومان)<input class="input en" name="tipax" inputmode="numeric" value={st.shipPrices.tipax} style="text-align:left" /></label>
+        <label class="field">پیک تهران (تومان)<input class="input en" name="courier" inputmode="numeric" value={st.shipPrices.courier} style="text-align:left" /></label>
+        <label class="field">حد ارسال رایگان (تومان)<input class="input en" name="freeShipFrom" inputmode="numeric" value={st.freeShipFrom} style="text-align:left" /></label>
+      </div>
+    </section>
+    <section class="panel">
+      <div class="ph"><h2>روش‌های پرداخت</h2></div>
+      {PAY.map(([k, label]) => (
+        <label style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:14px 20px;border-bottom:1px solid #EFEFED;font-size:14px;cursor:pointer">
+          <span>{label}</span><input type="checkbox" class="switch" role="switch" name={`pay_${k}`} checked={st.payments[k]} />
+        </label>
+      ))}
+    </section>
+    <section class="panel">
+      <div class="ph"><h2>فروشگاه</h2></div>
+      <div class="pb" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px">
+        <label class="field">هشدار موجودی کمتر از<input class="input en" name="lowStock" inputmode="numeric" value={st.lowStock} style="text-align:left" /></label>
+        <label class="field">تلفن پشتیبانی<input class="input en" name="supportPhone" value={st.supportPhone} placeholder="021-XXXXXXXX" style="text-align:left" /></label>
+        <label class="field" style="grid-column:1 / -1">پیام‌های نوار اطلاع‌رسانی <span class="hint" style="font-weight:400;color:#5C5C5C">هر پیام در یک خط؛ به‌نوبت نمایش داده می‌شوند</span>
+          <textarea class="input" name="promos" rows="4">{st.promos.join('\n')}</textarea>
+        </label>
+        <label class="field" style="grid-column:1 / -1">کارشناسان مشاوره <span class="hint" style="font-weight:400;color:#5C5C5C">هر نام در یک خط</span>
+          <textarea class="input" name="experts" rows="3">{st.experts.join('\n')}</textarea>
+        </label>
+      </div>
+    </section>
+    <section class="panel">
+      <div class="ph"><h2>تماس و اطلاعات شرکت</h2><span class="mute" style="font-size:12px">در پشتیبانی، درباره‌ی ما و فوتر نمایش داده می‌شود؛ خالی = نمایش داده نمی‌شود</span></div>
+      <div class="pb" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px">
+        <label class="field">ایمیل پشتیبانی<input class="input en" type="email" name="supportEmail" value={st.supportEmail} style="text-align:left" placeholder="support@example.ir" /></label>
+        <label class="field">تلگرام / واتس‌اپ پشتیبانی<input class="input en" name="supportTelegram" value={st.supportTelegram} style="text-align:left" placeholder="@lumiere_support" /></label>
+        <label class="field">ساعات پاسخ‌گویی<input class="input" name="supportHours" value={st.supportHours} /></label>
+        <label class="field">صفحه‌ی اینستاگرام (لینک کامل)<input class="input en" name="instagram" value={st.instagram} style="text-align:left" placeholder="https://instagram.com/…" /></label>
+        <label class="field">کانال تلگرام (لینک کامل)<input class="input en" name="telegramChannel" value={st.telegramChannel} style="text-align:left" placeholder="https://t.me/…" /></label>
+        <label class="field">سال تأسیس<input class="input" name="foundedYear" value={st.foundedYear} placeholder="۱۴۰۳" /></label>
+      </div>
+    </section>
+    <section class="panel">
+      <div class="ph"><h2>صفحه‌های حقوقی</h2><span class="mute" style="font-size:12px">پاراگراف‌ها را با یک خط خالی جدا کنید؛ خطی که با «## » شروع شود تیتر است</span></div>
+      {drafts.length > 0 && (
+        <p class="flash err" style="margin:16px 20px 0">
+          {drafts.map((k) => LEGAL_TITLES[k]).join('، ')} هنوز متن پیش‌نویس پیش‌فرض است. این متن‌ها بر اساس عملکرد واقعی سایت نوشته شده‌اند، اما پیش از راه‌اندازی سایت باید توسط فروشگاه (و ترجیحاً مشاور حقوقی) بازبینی و ذخیره شوند. نماد اعتماد الکترونیکی هم صفحه‌ی قوانین را بررسی می‌کند.
+        </p>
+      )}
+      <div class="pb" style="display:flex;flex-direction:column;gap:14px">
+        {(Object.keys(LEGAL_DEFAULTS) as LegalKey[]).map((k) => (
+          <label class="field">{LEGAL_TITLES[k]} <a href={`/${k}`} target="_blank" class="hint" style="text-decoration:underline">مشاهده‌ی صفحه</a>
+            <textarea class="input" name={k} rows="10" style="line-height:1.9">{st[k] || LEGAL_DEFAULTS[k]}</textarea>
+          </label>
+        ))}
+      </div>
+    </section>
+    <div><button class="btn btn-dark">ذخیره‌ی تنظیمات</button></div>
+  </form>
+</AdminLayout>

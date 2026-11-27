@@ -1,0 +1,195 @@
+---
+import Layout from '~/layouts/Layout.astro';
+import ProductCard from './ProductCard.astro';
+import { filterProducts, getCatalog, matches, parseShopQuery, PRICE_RANGES, type ShopQuery } from '~/lib/catalog';
+import { fa, SKIN_TYPES } from '~/lib/format';
+import { config } from '~/lib/config';
+
+interface Props {
+  /** Fixed filter for landing pages, e.g. { cat: ['serums'] }. Merged with query params. */
+  preset?: Partial<ShopQuery>;
+  title?: string;
+  intro?: string | null;
+  seoTitle?: string;
+  seoDescription?: string;
+  basePath?: string;
+  crumb?: string;
+}
+const { preset = {}, title, intro, seoTitle, seoDescription, basePath = '/shop', crumb } = Astro.props;
+
+const cat = await getCatalog();
+const fromUrl = parseShopQuery(Astro.url);
+const q: ShopQuery = {
+  ...fromUrl,
+  cat: [...new Set([...(preset.cat ?? []), ...fromUrl.cat])],
+  concern: [...new Set([...(preset.concern ?? []), ...fromUrl.concern])],
+};
+const list = filterProducts(cat, q);
+
+const groups = [
+  { key: 'cat' as const, title: 'دسته‌بندی', opts: cat.categories.map((c) => [c.slug, c.name]), has: (p: any, v: string) => p.category === v },
+  { key: 'concern' as const, title: 'نگرانی پوست', opts: cat.concerns.map((c) => [c.slug, c.name]), has: (p: any, v: string) => p.concerns.includes(v) },
+  { key: 'skin' as const, title: 'نوع پوست', opts: Object.entries(SKIN_TYPES), has: (p: any, v: string) => p.skinTypes.includes(v) },
+  { key: 'ing' as const, title: 'ترکیب کلیدی', opts: cat.ingredients.map((i) => [i.slug, i.nameFa]), has: (p: any, v: string) => p.ingredients.includes(v) },
+];
+const locked = (key: string, v: string) => ((preset as any)[key] ?? []).includes(v);
+
+const chips: { label: string; href: string }[] = [];
+const without = (key: string, v?: string) => {
+  const u = new URL(Astro.url);
+  if (v === undefined) u.searchParams.delete(key);
+  else {
+    const rest = u.searchParams.getAll(key).filter((x) => x !== v);
+    u.searchParams.delete(key);
+    rest.forEach((x) => u.searchParams.append(key, x));
+  }
+  return u.pathname + u.search;
+};
+for (const g of groups) for (const v of fromUrl[g.key]) {
+  const label = g.opts.find((o) => o[0] === v)?.[1];
+  if (label) chips.push({ label, href: without(g.key, v) });
+}
+if (q.price !== 'all') chips.push({ label: PRICE_RANGES.find((r) => r[0] === q.price)?.[1] ?? '', href: without('price') });
+if (q.q) chips.push({ label: `«${q.q}»`, href: without('q') });
+
+const pageTitle = title ?? (q.q ? `نتایج جستجو برای «${q.q}»` : 'همه‌ی محصولات');
+// Only the unfiltered landing page is indexable; filter/sort/search combinations are noindex to avoid thin duplicates.
+const filtered = Astro.url.search.length > 1;
+const site = config.siteUrl.replace(/\/$/, '');
+const jsonLd = [
+  {
+    '@context': 'https://schema.org', '@type': 'ItemList',
+    itemListElement: list.slice(0, 30).map((p, i) => ({ '@type': 'ListItem', position: i + 1, url: `${site}/p/${p.slug}`, name: p.nameEn })),
+  },
+  {
+    '@context': 'https://schema.org', '@type': 'BreadcrumbList',
+    itemListElement: [
+      { '@type': 'ListItem', position: 1, name: 'خانه', item: site + '/' },
+      { '@type': 'ListItem', position: 2, name: 'فروشگاه', item: site + '/shop' },
+      ...(crumb ? [{ '@type': 'ListItem', position: 3, name: crumb, item: site + basePath }] : []),
+    ],
+  },
+];
+---
+<Layout title={seoTitle ?? pageTitle} description={seoDescription} canonical={basePath} noindex={filtered} jsonLd={jsonLd} active="shop" cache={60}>
+  <div class="wrap" style="padding-top:24px;padding-bottom:96px">
+    <nav aria-label="مسیر" style="font-size:13px;color:#5C5C5C;display:flex;gap:8px;margin-bottom:20px">
+      <a href="/" style="color:#5C5C5C">خانه</a><span aria-hidden="true">/</span>
+      {crumb ? <><a href="/shop" style="color:#5C5C5C">فروشگاه</a><span aria-hidden="true">/</span><span style="color:#111111">{crumb}</span></> : <span style="color:#111111">فروشگاه</span>}
+    </nav>
+
+    <form method="get" action={basePath} data-autosubmit id="shop-form">
+      <div style="display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:20px;margin-bottom:28px">
+        <div style="display:flex;flex-direction:column;gap:8px;max-width:720px">
+          <h1 style="margin:0;font-size:clamp(30px,3.4vw,44px);font-weight:800;line-height:1.3">{pageTitle}</h1>
+          <p style="margin:0;font-size:14px;line-height:2;color:#5C5C5C">{intro ?? 'فرمول‌های بالینی با درصد دقیق ترکیبات روی برچسب.'}</p>
+        </div>
+        <div style="flex:0 1 480px;min-width:260px;position:relative">
+          <label for="q" class="sr-only">جستجو در محصولات</label>
+          <input id="q" name="q" class="input" type="search" placeholder="جستجو: نیاسینامید، رتینال، آکنه…" value={q.q} style="padding-inline-start:44px;min-height:52px;border-color:#111111" />
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#111111" stroke-width="1.6" stroke-linecap="round" aria-hidden="true" style="position:absolute;top:17px;right:14px"><circle cx="11" cy="11" r="7.5"></circle><path d="m20.5 20.5-4-4"></path></svg>
+        </div>
+      </div>
+
+      <div style="display:flex;flex-wrap:wrap;gap:40px;align-items:flex-start">
+        <details class="filters" open>
+          <summary class="btn btn-line filter-sum">فیلترها{chips.length ? ` (${fa(chips.length)})` : ''}</summary>
+          <div style="display:flex;justify-content:space-between;align-items:center;padding-bottom:14px">
+            <p style="margin:0;font-size:16px;font-weight:700">فیلترها</p>
+            {chips.length > 0 && <a href={basePath} style="font-size:13px;text-decoration:underline;text-underline-offset:4px">پاک کردن همه</a>}
+          </div>
+          {groups.map((g) => (
+            <fieldset class="fgroup">
+              <legend>{g.title}</legend>
+              {g.opts.map(([v, label]) => {
+                const n = cat.products.filter((p) => g.has(p, v) && matches(p, q, cat, g.key)).length;
+                const isLocked = locked(g.key, v);
+                return (
+                  <label class="cbx">
+                    <input type="checkbox" name={g.key} value={v} checked={q[g.key].includes(v)} disabled={isLocked} />
+                    <span>{label}</span><span class="n">{fa(n)}</span>
+                  </label>
+                );
+              })}
+            </fieldset>
+          ))}
+          <fieldset class="fgroup">
+            <legend>محدوده‌ی قیمت</legend>
+            {PRICE_RANGES.map(([v, label]) => (
+              <label class="cbx"><input type="radio" name="price" value={v} checked={q.price === v} /><span>{label}</span></label>
+            ))}
+          </fieldset>
+          <noscript><button class="btn btn-dark" style="width:100%;margin-top:12px">اعمال فیلترها</button></noscript>
+        </details>
+
+        <section aria-label="نتایج" style="flex:999 1 560px;min-width:0">
+          <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:12px;padding-bottom:16px;border-bottom:1px solid #E5E5E3;margin-bottom:16px">
+            <p aria-live="polite" style="margin:0;font-size:14px;font-weight:600">{fa(list.length)} محصول</p>
+            <label style="display:flex;align-items:center;gap:10px;font-size:13px;color:#5C5C5C">مرتب‌سازی
+              <select name="sort" style="min-height:40px;padding:0 12px;border:1px solid #CFCFCD;background:#FFFFFF;font-size:14px;color:#111111">
+                {[['rec', 'پیشنهاد ما'], ['best', 'پرفروش‌ترین'], ['rating', 'بیشترین امتیاز'], ['low', 'ارزان‌ترین'], ['high', 'گران‌ترین']].map(([v, l]) => <option value={v} selected={q.sort === v}>{l}</option>)}
+              </select>
+            </label>
+          </div>
+          {chips.length > 0 && (
+            <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:20px">
+              {chips.map((c) => <a class="chip" href={c.href} aria-label={`حذف فیلتر ${c.label}`}>{c.label} <span aria-hidden="true">×</span></a>)}
+            </div>
+          )}
+
+          {list.length === 0 && (
+            <div style="background:#F4F4F2;padding:56px 24px;text-align:center;display:flex;flex-direction:column;align-items:center;gap:14px">
+              <p style="margin:0;font-size:20px;font-weight:700">نتیجه‌ای پیدا نشد.</p>
+              <p style="margin:0;font-size:14px;color:#5C5C5C">عبارت دیگری را امتحان کنید یا فیلترها را کم کنید. پیشنهاد: «نیاسینامید»، «خشکی»، «ضدآفتاب».</p>
+              <div style="display:flex;flex-wrap:wrap;gap:10px;justify-content:center">
+                <a class="btn btn-dark" href="/shop">نمایش همه‌ی محصولات</a>
+                <a class="btn btn-line" href="/quiz">کمکم کن انتخاب کنم</a>
+              </div>
+            </div>
+          )}
+
+          <div class="pgrid">
+            {list.map((p, i) => <ProductCard p={p} height={310} eager={i < 2} headingLevel="h2" />)}
+          </div>
+
+          <div style="margin-top:56px;background:#F4F4F2;padding:32px;display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:20px">
+            <div style="display:flex;flex-direction:column;gap:6px">
+              <p style="margin:0;font-size:20px;font-weight:700">مطمئن نیستید کدام را انتخاب کنید؟</p>
+              <p style="margin:0;font-size:14px;color:#3A3A3A">تست ۶۰ ثانیه‌ای پوست، روتین شما را پیشنهاد می‌دهد؛ یا با کارشناس ما صحبت کنید.</p>
+            </div>
+            <div style="display:flex;flex-wrap:wrap;gap:10px">
+              <a class="btn btn-dark" href="/quiz">شروع تست پوست</a>
+              <a class="btn btn-line" href="/consultation">مشاوره‌ی رایگان</a>
+            </div>
+          </div>
+        </section>
+      </div>
+    </form>
+  </div>
+</Layout>
+
+<style>
+  .filters { flex: 1 1 240px; max-width: 300px; min-width: 220px; }
+  .filter-sum { display: none; list-style: none; }
+  .filter-sum::-webkit-details-marker { display: none; }
+  .fgroup { border: 0; border-top: 1px solid #E5E5E3; margin: 0; padding: 16px 0; display: flex; flex-direction: column; gap: 4px; }
+  .fgroup legend { float: right; width: 100%; padding: 0 0 8px; font-size: 14px; font-weight: 700; }
+  .cbx { display: flex; align-items: center; gap: 10px; min-height: 36px; font-size: 14px; cursor: pointer; }
+  .cbx input { width: 18px; height: 18px; accent-color: #111111; margin: 0; }
+  .cbx .n { margin-inline-start: auto; font-size: 12px; color: #5C5C5C; }
+  .pgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 36px 16px; }
+  @media (max-width: 760px) {
+    .filters { max-width: none; flex-basis: 100%; }
+    .filters:not([open]) > :not(summary) { display: none; }
+    .filters[open] { border: 1px solid #111111; padding: 16px; }
+    .filter-sum { display: inline-flex; min-height: 40px; padding: 0 14px; font-size: 13px; margin-bottom: 8px; }
+    .pgrid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 28px 10px; }
+    .pgrid :global(.stage) { height: 220px !important; }
+    .pgrid :global(.pshape) { transform: scale(.72); }
+  }
+</style>
+
+<script>
+  // Collapse filters by default on phones (open on desktop for crawlers and no-JS users).
+  if (matchMedia('(max-width: 760px)').matches) document.querySelector('details.filters')?.removeAttribute('open');
+</script>

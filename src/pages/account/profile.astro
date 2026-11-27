@@ -1,0 +1,56 @@
+---
+import AccountLayout from '~/layouts/AccountLayout.astro';
+import { eq } from 'drizzle-orm';
+import { db, schema as s } from '~/db';
+import { str } from '~/lib/admin';
+import { SKIN_TYPES } from '~/lib/format';
+
+const u = Astro.locals.user!;
+let error: string | null = null;
+if (Astro.request.method === 'POST') {
+  const f = await Astro.request.formData();
+  const firstName = str(f.get('firstName')).slice(0, 60);
+  const email = str(f.get('email')).toLowerCase().slice(0, 200);
+  const skin = str(f.get('skinType'));
+  if (!firstName) error = 'نام لازم است.';
+  else if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) error = 'ایمیل معتبر نیست.';
+  else {
+    const newsletter = f.get('newsletter') === 'on';
+    await db.update(s.users).set({
+      firstName, lastName: str(f.get('lastName')).slice(0, 60) || null, email: email || null,
+      skinType: skin in SKIN_TYPES ? skin : null, birthDate: str(f.get('birthDate')).slice(0, 40) || null,
+      smsOptIn: f.get('smsOptIn') === 'on', refillReminders: f.get('refillReminders') === 'on',
+    }).where(eq(s.users.id, u.id));
+    if (email && newsletter) await db.insert(s.subscribers).values({ email }).onConflictDoNothing();
+    if (email && !newsletter) await db.delete(s.subscribers).where(eq(s.subscribers.email, email));
+    return Astro.redirect('/account/profile?ok=' + encodeURIComponent('تغییرات ذخیره شد.'), 303);
+  }
+}
+const [sub] = u.email ? await db.select().from(s.subscribers).where(eq(s.subscribers.email, u.email)).limit(1) : [];
+---
+<AccountLayout title="اطلاعات حساب" section="profile">
+  <form method="post" style="display:flex;flex-direction:column;gap:18px;max-width:720px">
+    <h1 class="acc-h">اطلاعات حساب</h1>
+    {error && <p role="alert" class="err-t" style="margin:0;font-size:13px">{error}</p>}
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px">
+      <label class="field">نام<input class="input" name="firstName" required value={u.firstName ?? ''} autocomplete="given-name" /></label>
+      <label class="field">نام خانوادگی<input class="input" name="lastName" value={u.lastName ?? ''} autocomplete="family-name" /></label>
+      <label class="field">شماره‌ی موبایل<input class="input en" value={u.phone} readonly style="text-align:left;background:#F4F4F2" aria-describedby="phone-note" /><span id="phone-note" style="font-weight:400;font-size:12px;color:#5C5C5C">برای تغییر شماره با پشتیبانی تماس بگیرید.</span></label>
+      <label class="field">ایمیل<input class="input en" type="email" name="email" value={u.email ?? ''} style="text-align:left" autocomplete="email" /></label>
+      <label class="field">نوع پوست
+        <select class="input" name="skinType">
+          <option value="">انتخاب نشده</option>
+          {Object.entries(SKIN_TYPES).map(([k, l]) => <option value={k} selected={u.skinType === k}>{l}</option>)}
+        </select>
+      </label>
+      <label class="field">تاریخ تولد (برای هدیه‌ی تولد)<input class="input" name="birthDate" value={u.birthDate ?? ''} placeholder="مثلاً ۱۲ اردیبهشت" /></label>
+    </div>
+    <fieldset style="border:0;padding:0;margin:0;display:flex;flex-direction:column">
+      <legend style="padding:0;margin-bottom:10px;font-size:15px;font-weight:700">اعلان‌ها</legend>
+      <label class="acc-switch"><span>پیامک تخفیف‌ها و محصولات جدید <span style="font-size:12px;color:#5C5C5C">(پیامک وضعیت سفارش همیشه ارسال می‌شود)</span></span><input type="checkbox" name="smsOptIn" role="switch" checked={u.smsOptIn} /></label>
+      <label class="acc-switch"><span>یادآوری تمام شدن محصولات</span><input type="checkbox" name="refillReminders" role="switch" checked={u.refillReminders} /></label>
+      <label class="acc-switch"><span>خبرنامه‌ی ایمیلی <span style="font-size:12px;color:#5C5C5C">(نیاز به ایمیل)</span></span><input type="checkbox" name="newsletter" role="switch" checked={!!sub} /></label>
+    </fieldset>
+    <div><button class="btn btn-dark">ذخیره‌ی تغییرات</button></div>
+  </form>
+</AccountLayout>

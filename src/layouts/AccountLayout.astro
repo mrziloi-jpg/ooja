@@ -1,0 +1,77 @@
+---
+import Layout from './Layout.astro';
+import { count, eq } from 'drizzle-orm';
+import { db, schema as s } from '~/db';
+import { ownOrders } from '~/lib/account';
+import { fa } from '~/lib/format';
+
+interface Props { title: string; section: string }
+const { title, section } = Astro.props;
+const u = Astro.locals.user!;
+const [[o], [w]] = await Promise.all([
+  db.select({ n: count() }).from(s.orders).where(ownOrders(u)),
+  db.select({ n: count() }).from(s.wishlist).where(eq(s.wishlist.userId, u.id)),
+]);
+const nav = [
+  ['overview', '/account', 'پیشخوان', ''],
+  ['orders', '/account/orders', 'سفارش‌ها', o.n ? fa(o.n) : ''],
+  ['addresses', '/account/addresses', 'آدرس‌ها', ''],
+  ['wishlist', '/account/wishlist', 'علاقه‌مندی‌ها', w.n ? fa(w.n) : ''],
+  ['routine', '/account/routine', 'روتین من', ''],
+  ['points', '/account/points', 'امتیازها', ''],
+  ['profile', '/account/profile', 'اطلاعات حساب', ''],
+];
+const ok = Astro.url.searchParams.get('ok');
+const err = Astro.url.searchParams.get('err');
+---
+<Layout title={title} noindex active="account">
+  <div class="wrap" style="padding-top:32px;padding-bottom:96px">
+    <div style="display:flex;flex-wrap:wrap;gap:40px;align-items:flex-start">
+      <aside class="acc-side" aria-label="منوی حساب">
+        <div style="padding:0 16px 20px;display:flex;flex-direction:column;gap:4px">
+          <p style="margin:0;font-size:20px;font-weight:800">{u.firstName ?? 'حساب من'}</p>
+          <p class="en r" style="margin:0;font-size:13px;color:#5C5C5C">{u.phone}</p>
+        </div>
+        <nav class="acc-nav">
+          {nav.map(([key, href, label, badge]) => (
+            <a class="side" href={href} aria-current={section === key ? 'page' : undefined}><span>{label}</span><span style="font-size:12px;color:#5C5C5C">{badge}</span></a>
+          ))}
+          <form method="post" action="/api/auth/logout" style="display:contents"><button class="side">خروج از حساب</button></form>
+        </nav>
+      </aside>
+      <section style="flex:999 1 560px;min-width:0;display:flex;flex-direction:column;gap:16px">
+        {ok && <p role="status" style="margin:0;padding:12px 16px;background:#F4F4F2;font-size:14px;font-weight:600">{ok}</p>}
+        {err && <p role="alert" style="margin:0;padding:12px 16px;border:1px solid #A3261B;color:#A3261B;font-size:14px;font-weight:600">{err}</p>}
+        <slot />
+      </section>
+    </div>
+  </div>
+</Layout>
+
+<style is:global>
+  .acc-side { flex: 1 1 240px; max-width: 290px; min-width: 220px; }
+  .acc-nav { display: flex; flex-direction: column; border-top: 1px solid #E5E5E3; }
+  .acc-nav .side { width: 100%; min-height: 48px; padding: 0 16px; background: none; border: 0; border-inline-start: 2px solid transparent; text-align: right; font-size: 15px; color: #3A3A3A; display: flex; align-items: center; justify-content: space-between; gap: 10px; text-decoration: none; }
+  .acc-nav .side:hover { background: #F4F4F2; color: #111111; }
+  .acc-nav .side[aria-current=page] { border-inline-start-color: #111111; background: #F4F4F2; color: #111111; font-weight: 700; }
+  .acc-h { margin: 0; font-size: clamp(22px, 2.2vw, 28px); font-weight: 800; line-height: 1.4; }
+  .card { border: 1px solid #E5E5E3; padding: 22px; display: flex; flex-direction: column; gap: 12px; }
+  .lnk { background: none; border: 0; padding: 0; font-size: 13px; font-weight: 600; text-decoration: underline; text-underline-offset: 4px; color: #111111; min-height: 36px; display: inline-flex; align-items: center; }
+  .status { font-size: 12px; font-weight: 700; padding: 4px 10px; border: 1px solid #111111; white-space: nowrap; }
+  .status.solid { background: #111111; color: #FFFFFF; }
+  .status.muted { border-color: #BDBDBD; color: #5C5C5C; }
+  .vial { width: 22px; height: 50px; border-radius: 3px 3px 7px 7px; border-top: 10px solid #111111; box-shadow: inset 0 0 0 1px rgba(0,0,0,.1); }
+  .thumb { background: radial-gradient(ellipse at 50% 40%, #FFFFFF 0%, #F4F4F2 80%); display: flex; align-items: center; justify-content: center; overflow: hidden; }
+  .acc-switch { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 14px 0; border-top: 1px solid #EFEFED; font-size: 14px; cursor: pointer; }
+  .acc-switch input { appearance: none; width: 46px; height: 26px; border-radius: 999px; background: #CFCFCD; position: relative; flex: 0 0 auto; margin: 0; cursor: pointer; transition: background .2s; }
+  .acc-switch input::after { content: ''; position: absolute; top: 3px; right: 3px; width: 20px; height: 20px; border-radius: 50%; background: #FFFFFF; transition: right .2s; }
+  .acc-switch input:checked { background: #111111; }
+  .acc-switch input:checked::after { right: 23px; }
+  @media (max-width: 760px) {
+    .acc-side { max-width: none; flex-basis: 100%; min-width: 0; }
+    .acc-nav { flex-direction: row; overflow-x: auto; border-top: 0; border-bottom: 1px solid #E5E5E3; scrollbar-width: none; }
+    .acc-nav::-webkit-scrollbar { display: none; }
+    .acc-nav .side { width: auto; flex: 0 0 auto; white-space: nowrap; border-inline-start: 0; border-bottom: 2px solid transparent; padding: 0 12px; background: none; }
+    .acc-nav .side[aria-current=page] { border-bottom-color: #111111; background: none; }
+  }
+</style>

@@ -1,0 +1,61 @@
+---
+import AdminLayout from '~/layouts/AdminLayout.astro';
+import { and, count, desc, eq } from 'drizzle-orm';
+import { db, schema as s } from '~/db';
+import { recomputeRating, str } from '~/lib/admin';
+import { fa, jalaliDate } from '~/lib/format';
+
+const TABS = { pending: 'در انتظار بررسی', approved: 'منتشرشده', rejected: 'ردشده' } as const;
+type Tab = keyof typeof TABS;
+const tab = (Astro.url.searchParams.get('tab') ?? 'pending') as Tab;
+const where = (t: Tab) => t === 'pending'
+  ? and(eq(s.reviews.approved, false), eq(s.reviews.rejected, false))
+  : t === 'approved' ? eq(s.reviews.approved, true) : eq(s.reviews.rejected, true);
+
+if (Astro.request.method === 'POST') {
+  const f = await Astro.request.formData();
+  const id = Number(f.get('id'));
+  const action = f.get('action');
+  const reply = str(f.get('reply')) || null;
+  const [r] = await db.update(s.reviews).set(
+    action === 'approve' ? { approved: true, rejected: false, reply }
+      : action === 'reject' ? { approved: false, rejected: true }
+      : { reply },
+  ).where(eq(s.reviews.id, id)).returning({ productId: s.reviews.productId });
+  if (r) await recomputeRating(r.productId);
+  return Astro.redirect(`/admin/reviews?tab=${tab}&ok=${encodeURIComponent(action === 'approve' ? 'نظر منتشر شد.' : action === 'reject' ? 'نظر رد شد.' : 'پاسخ ذخیره شد.')}`, 303);
+}
+
+if (!(tab in TABS)) return Astro.redirect('/admin/reviews');
+const [rows, counts] = await Promise.all([
+  db.select({ r: s.reviews, product: s.products.nameEn, slug: s.products.slug }).from(s.reviews)
+    .innerJoin(s.products, eq(s.products.id, s.reviews.productId)).where(where(tab)).orderBy(desc(s.reviews.createdAt)).limit(100),
+  Promise.all((Object.keys(TABS) as Tab[]).map(async (t) => [t, (await db.select({ n: count() }).from(s.reviews).where(where(t)))[0].n] as const)),
+]);
+const countOf = Object.fromEntries(counts);
+---
+<AdminLayout title="نظرات" section="reviews">
+  <section class="panel">
+    <nav class="tabs" aria-label="وضعیت نظر">
+      {(Object.keys(TABS) as Tab[]).map((t) => <a class="tab" href={`/admin/reviews?tab=${t}`} aria-current={tab === t ? 'page' : undefined}>{TABS[t]} ({fa(countOf[t])})</a>)}
+    </nav>
+    {rows.length === 0 && <p style="margin:0;padding:32px;text-align:center;font-size:14px;color:#5C5C5C">موردی نیست.</p>}
+    {rows.map(({ r, product, slug }) => (
+      <article style="padding:18px 20px;border-bottom:1px solid #EFEFED;display:flex;flex-direction:column;gap:10px">
+        <div style="display:flex;flex-wrap:wrap;justify-content:space-between;gap:10px;font-size:13px">
+          <span><strong>{r.name}</strong>{r.skin && <> · پوست {r.skin}</>} · <a class="en" href={`/p/${slug}#reviews`} target="_blank">{product}</a>{r.verified && <span class="st s-ready" style="margin-inline-start:6px">خریدار تأییدشده</span>}</span>
+          <span>{'★'.repeat(r.rating)}<span style="color:#CFCFCD">{'★'.repeat(5 - r.rating)}</span> · {jalaliDate(r.createdAt)}</span>
+        </div>
+        <p style="margin:0;font-size:14px;line-height:1.9">{r.body}</p>
+        <form method="post" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">
+          <input type="hidden" name="id" value={r.id} />
+          <label class="sr-only" for={`reply-${r.id}`}>پاسخ به نظر</label>
+          <input id={`reply-${r.id}`} class="input" name="reply" value={r.reply ?? ''} placeholder="پاسخ عمومی LUMIÈRE (اختیاری)" style="flex:1 1 240px" />
+          {tab !== 'approved' && <button class="btn btn-dark btn-sm" name="action" value="approve">تأیید و انتشار</button>}
+          {tab === 'approved' && <button class="btn btn-line btn-sm" name="action" value="reply">ذخیره‌ی پاسخ</button>}
+          {tab !== 'rejected' && <button class="btn btn-danger btn-sm" name="action" value="reject">{tab === 'approved' ? 'حذف از سایت' : 'رد'}</button>}
+        </form>
+      </article>
+    ))}
+  </section>
+</AdminLayout>

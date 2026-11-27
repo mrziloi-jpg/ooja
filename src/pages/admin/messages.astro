@@ -1,0 +1,68 @@
+---
+import AdminLayout from '~/layouts/AdminLayout.astro';
+import { count, desc, eq } from 'drizzle-orm';
+import { db, schema as s } from '~/db';
+import { str } from '~/lib/admin';
+import { fa, jalaliDate } from '~/lib/format';
+import { notify } from '~/lib/sms';
+
+const TABS = { open: 'باز', answered: 'پاسخ‌داده‌شده', closed: 'بسته' } as const;
+type Tab = keyof typeof TABS;
+const tab = (Astro.url.searchParams.get('tab') ?? 'open') as Tab;
+const code = (id: number) => `TK-${String(id).padStart(5, '0')}`;
+
+if (Astro.request.method === 'POST') {
+  const f = await Astro.request.formData();
+  const id = Number(f.get('id'));
+  const action = f.get('action');
+  let msg = '';
+  if (action === 'reply') {
+    const reply = str(f.get('reply')).slice(0, 600);
+    if (reply.length < 2) return Astro.redirect(`/admin/messages?tab=${tab}&err=${encodeURIComponent('متن پاسخ خالی است.')}`, 303);
+    const [m] = await db.update(s.supportMessages).set({ reply, status: 'answered', answeredAt: new Date() }).where(eq(s.supportMessages.id, id)).returning();
+    if (m) notify(m.phone, `پاسخ LUMIÈRE به پیام ${code(m.id)}:\n${reply}`);
+    msg = 'پاسخ پیامک شد.';
+  } else if (action === 'close' || action === 'reopen') {
+    await db.update(s.supportMessages).set({ status: action === 'close' ? 'closed' : 'open' }).where(eq(s.supportMessages.id, id));
+    msg = action === 'close' ? 'بسته شد.' : 'دوباره باز شد.';
+  }
+  return Astro.redirect(`/admin/messages?tab=${tab}&ok=${encodeURIComponent(msg)}`, 303);
+}
+
+if (!(tab in TABS)) return Astro.redirect('/admin/messages');
+const [rows, counts] = await Promise.all([
+  db.select().from(s.supportMessages).where(eq(s.supportMessages.status, tab)).orderBy(tab === 'open' ? s.supportMessages.createdAt : desc(s.supportMessages.createdAt)).limit(100),
+  db.select({ status: s.supportMessages.status, n: count() }).from(s.supportMessages).groupBy(s.supportMessages.status),
+]);
+const countOf = (t: string) => counts.find((c) => c.status === t)?.n ?? 0;
+---
+<AdminLayout title="پیام‌های پشتیبانی" section="messages">
+  <section class="panel">
+    <nav class="tabs" aria-label="وضعیت پیام">
+      {(Object.keys(TABS) as Tab[]).map((t) => <a class="tab" href={`/admin/messages?tab=${t}`} aria-current={tab === t ? 'page' : undefined}>{TABS[t]} ({fa(countOf(t))})</a>)}
+    </nav>
+    {rows.length === 0 && <p style="margin:0;padding:32px;text-align:center;font-size:14px;color:#5C5C5C">پیامی نیست.</p>}
+    {rows.map((m) => (
+      <article style="padding:18px 20px;border-bottom:1px solid #EFEFED;display:flex;flex-direction:column;gap:10px">
+        <div style="display:flex;flex-wrap:wrap;justify-content:space-between;gap:10px;font-size:13px">
+          <span><strong>{m.name}</strong> · <a class="en" href={`tel:${m.phone}`}>{m.phone}</a> · {m.topic} · <a class="rowbtn" href={`/admin/orders?q=${m.phone}`}>سفارش‌ها</a></span>
+          <span class="mute"><span class="en">{code(m.id)}</span> · {jalaliDate(m.createdAt, { month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+        </div>
+        <p style="margin:0;font-size:14px;line-height:1.9;white-space:pre-line">{m.body}</p>
+        {m.reply && <p style="margin:0;padding:10px 12px;background:#F4F4F2;font-size:13px;line-height:1.8"><strong>پاسخ ما{m.answeredAt && <> ({jalaliDate(m.answeredAt, { month: 'short', day: 'numeric' })})</>}:</strong> {m.reply}</p>}
+        <form method="post" style="display:flex;flex-wrap:wrap;gap:8px;align-items:flex-start">
+          <input type="hidden" name="id" value={m.id} />
+          {tab !== 'closed' && (
+            <>
+              <label class="sr-only" for={`r-${m.id}`}>پاسخ</label>
+              <textarea id={`r-${m.id}`} class="input" name="reply" rows="2" maxlength="600" placeholder="پاسخ (با پیامک برای مشتری ارسال می‌شود)" style="flex:1 1 280px;min-height:44px"></textarea>
+              <button class="btn btn-dark btn-sm" name="action" value="reply">ارسال پاسخ</button>
+              <button class="btn btn-line btn-sm" name="action" value="close" formnovalidate>بستن</button>
+            </>
+          )}
+          {tab === 'closed' && <button class="btn btn-line btn-sm" name="action" value="reopen">باز کردن دوباره</button>}
+        </form>
+      </article>
+    ))}
+  </section>
+</AdminLayout>

@@ -1,0 +1,14 @@
+node_modules
+dist
+.astro
+.env
+media
+*.log
+backups
+deploy/certs
+.env.*
+!.env.example
+*.pem
+*.key
+*.dump
+.DS_Store

@@ -1,0 +1,30 @@
+---
+import Layout from '~/layouts/Layout.astro';
+import { getSettings } from '~/lib/settings';
+import { LEGAL_DEFAULTS, LEGAL_TITLES, legalBlocks, type LegalKey } from '~/lib/legal';
+
+interface Props { page: LegalKey }
+const { page } = Astro.props;
+const st = await getSettings();
+const blocks = legalBlocks(st[page] || LEGAL_DEFAULTS[page]);
+const title = LEGAL_TITLES[page];
+const others = (Object.keys(LEGAL_TITLES) as LegalKey[]).filter((k) => k !== page);
+---
+<Layout title={title} description={`${title} فروشگاه اینترنتی LUMIÈRE.`} cache={300}>
+  <div class="wrap" style="padding-top:48px;padding-bottom:96px;display:flex;flex-wrap:wrap;gap:48px;align-items:flex-start">
+    <article style="flex:999 1 560px;min-width:0;max-width:780px;display:flex;flex-direction:column;gap:16px">
+      <nav aria-label="مسیر" style="font-size:13px;color:#5C5C5C;display:flex;gap:8px">
+        <a href="/" style="color:#5C5C5C">خانه</a><span aria-hidden="true">/</span><a href="/help" style="color:#5C5C5C">پشتیبانی</a><span aria-hidden="true">/</span><span style="color:#111111">{title}</span>
+      </nav>
+      <h1 style="margin:0;font-size:clamp(30px,3.4vw,44px);font-weight:800">{title}</h1>
+      {blocks.map((b) => ('h' in b
+        ? <h2 style="margin:16px 0 0;font-size:20px;font-weight:800">{b.h}</h2>
+        : <p style="margin:0;font-size:15px;line-height:2.1;color:#2A2A2A">{b.p}</p>))}
+    </article>
+    <aside style="flex:1 1 240px;max-width:300px;border-top:1px solid #111111;padding-top:16px;display:flex;flex-direction:column;gap:10px;font-size:14px">
+      <p style="margin:0;font-weight:700">صفحه‌های مرتبط</p>
+      {others.map((k) => <a href={`/${k}`} style="text-decoration:underline">{LEGAL_TITLES[k]}</a>)}
+      <a href="/help" style="text-decoration:underline">مرکز پشتیبانی</a>
+    </aside>
+  </div>
+</Layout>

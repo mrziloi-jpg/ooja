@@ -1,0 +1,62 @@
+---
+// Printable invoice for a customer's own order.
+import '@fontsource-variable/vazirmatn';
+import '@fontsource/inter/latin-400.css';
+import '~/styles/global.css';
+import { getOrder } from '~/lib/account';
+import { PAY_LABELS, SHIP_LABELS } from '~/lib/admin';
+import { fa, jalaliDate, money } from '~/lib/format';
+
+const found = await getOrder(Astro.locals.user!, Astro.params.code!);
+if (!found || found.o.status === 'awaiting_payment') return Astro.redirect('/account/orders');
+const { o, items } = found;
+---
+<!doctype html>
+<html lang="fa-IR" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex" />
+  <title>فاکتور {o.code}</title>
+  <style>
+    body { padding: 32px; max-width: 820px; margin: 0 auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th, td { padding: 10px 8px; border-bottom: 1px solid #E5E5E3; text-align: right; }
+    th { color: #5C5C5C; font-weight: 600; }
+    @media print { .no-print { display: none; } body { padding: 0; } }
+  </style>
+</head>
+<body>
+  <div class="no-print" style="margin-bottom:24px"><button class="btn btn-dark" onclick="print()">چاپ / ذخیره‌ی PDF</button></div>
+  <header style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #111111;padding-bottom:16px">
+    <div>
+      <p class="en" style="margin:0;font-size:24px;font-weight:700">LUMIÈRE.</p>
+      <p style="margin:4px 0 0;font-size:13px;color:#5C5C5C">فاکتور فروش</p>
+    </div>
+    <div style="text-align:left;font-size:14px;line-height:1.9">
+      <div>شماره: <strong class="en">{o.code}</strong></div>
+      <div>تاریخ: {jalaliDate(o.paidAt ?? o.createdAt)}</div>
+    </div>
+  </header>
+  <section style="display:grid;grid-template-columns:1fr 1fr;gap:16px;padding:16px 0;font-size:14px;line-height:1.9">
+    <div><strong>خریدار</strong><br />{o.firstName} {o.lastName}<br /><span class="en">{o.phone}</span></div>
+    <div><strong>نشانی</strong><br />{o.province}، {o.city}، {o.address}<br />کد پستی <span class="en">{o.postal}</span></div>
+  </section>
+  <table>
+    <thead><tr><th>کالا</th><th>حجم</th><th>تعداد</th><th>قیمت واحد</th><th>جمع</th></tr></thead>
+    <tbody>
+      {items.map(({ it }) => <tr><td><span class="en">{it.nameEn}</span><br /><span style="font-size:12px;color:#5C5C5C">{it.nameFa}</span></td><td>{it.label}</td><td>{fa(it.qty)}</td><td>{money(it.price)}</td><td>{money(it.price * it.qty)}</td></tr>)}
+    </tbody>
+  </table>
+  <dl style="margin:16px 0 0 0;max-width:320px;margin-inline-start:auto;display:flex;flex-direction:column;gap:6px;font-size:14px">
+    <div style="display:flex;justify-content:space-between"><dt>جمع کالاها</dt><dd style="margin:0">{money(o.subtotal)}</dd></div>
+    {o.discount > 0 && <div style="display:flex;justify-content:space-between"><dt>تخفیف</dt><dd style="margin:0">− {money(o.discount)}</dd></div>}
+    <div style="display:flex;justify-content:space-between"><dt>ارسال ({SHIP_LABELS[o.shipMethod]})</dt><dd style="margin:0">{o.shipCost ? money(o.shipCost) : 'رایگان'}</dd></div>
+    {o.creditUsed > 0 && <div style="display:flex;justify-content:space-between"><dt>اعتبار باشگاه</dt><dd style="margin:0">− {money(o.creditUsed)}</dd></div>}
+    <div style="display:flex;justify-content:space-between;border-top:1px solid #111111;padding-top:8px;font-weight:800"><dt>مبلغ کل</dt><dd style="margin:0">{money(o.total)}</dd></div>
+  </dl>
+  <p style="margin-top:24px;font-size:12px;color:#5C5C5C">
+    روش پرداخت: {PAY_LABELS[o.payMethod] ?? o.payMethod}{o.gatewayRef && o.gatewayRef !== 'CREDIT' && <> · کد پیگیری: <span class="en">{o.gatewayRef}</span></>} · قیمت‌ها شامل مالیات بر ارزش افزوده است.
+  </p>
+</body>
+</html>

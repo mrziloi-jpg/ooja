@@ -1,0 +1,17 @@
+---
+import ShopView from '~/components/ShopView.astro';
+import { getCatalog } from '~/lib/catalog';
+
+const cat = await getCatalog();
+const c = cat.concerns.find((x) => x.slug === Astro.params.slug);
+if (!c) return new Response(null, { status: 404 });
+---
+<ShopView
+  preset={{ concern: [c.slug] }}
+  title={`محصولات ${c.name}`}
+  intro={c.intro ?? c.sub}
+  crumb={c.name}
+  basePath={`/concern/${c.slug}`}
+  seoTitle={`بهترین محصولات برای ${c.name}`}
+  seoDescription={`${c.sub ?? ''} — روتین و محصولات پیشنهادی LUMIÈRE برای ${c.name}، با ترکیبات فعال اثبات‌شده.`}
+/>

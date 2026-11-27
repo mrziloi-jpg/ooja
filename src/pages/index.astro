@@ -1,0 +1,309 @@
+---
+import Layout from '~/layouts/Layout.astro';
+import ProductCard from '~/components/ProductCard.astro';
+import ProductArt from '~/components/ProductArt.astro';
+import Stars from '~/components/Stars.astro';
+import RoutineBuilder from '~/islands/RoutineBuilder';
+import { getCatalog } from '~/lib/catalog';
+import { GOALS } from '~/lib/routine';
+import { fa, money } from '~/lib/format';
+import { config } from '~/lib/config';
+import { db, schema as s } from '~/db';
+import { and, desc, eq, gte } from 'drizzle-orm';
+
+const cat = await getCatalog();
+const bestsellers = [...cat.products].sort((a, b) => a.sort - b.sort);
+const makeup = cat.products.filter((p) => p.category === 'makeup');
+const glossary = cat.ingredients.slice(0, 6);
+const reviews = await db.select({ r: s.reviews, slug: s.products.slug, nameEn: s.products.nameEn })
+  .from(s.reviews).innerJoin(s.products, eq(s.products.id, s.reviews.productId))
+  .where(and(eq(s.reviews.approved, true), gte(s.reviews.rating, 5))).orderBy(desc(s.reviews.createdAt)).limit(3);
+
+const routineProducts = Object.fromEntries(cat.products.map((p) => [p.slug, { variantId: p.variants[0].id, nameEn: p.nameEn, role: p.role ?? '', price: p.variants[0].price }]));
+const arrow = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5"></path><path d="m11 6-6 6 6 6"></path></svg>';
+const check = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex:0 0 auto;margin-top:4px"><path d="M20 6 9 17l-5-5"></path></svg>';
+const site = config.siteUrl.replace(/\/$/, '');
+
+const jsonLd = [
+  {
+    '@context': 'https://schema.org', '@type': 'Organization', name: 'LUMIÈRE', url: site, logo: `${site}/favicon.svg`,
+    sameAs: [],
+  },
+  {
+    '@context': 'https://schema.org', '@type': 'WebSite', name: 'LUMIÈRE', url: site, inLanguage: 'fa-IR',
+    potentialAction: { '@type': 'SearchAction', target: `${site}/shop?q={search_term_string}`, 'query-input': 'required name=search_term_string' },
+  },
+];
+---
+<Layout title="LUMIÈRE — فرمول‌های بالینی با صداقت" description="مراقبت پوست با ترکیبات فعال اثبات‌شده و درصد دقیق روی برچسب: نیاسینامید، رتینال، سرامید، ویتامین C. بدون عطر، وگان، با ارسال به سراسر ایران." jsonLd={jsonLd} cache={60}>
+
+  <!-- Hero -->
+  <section class="wrap" style="padding-top:20px;padding-bottom:72px">
+    <div style="display:flex;flex-wrap:wrap;gap:16px">
+      <div class="stage" style="flex:2 1 640px;min-width:0;min-height:620px;align-items:stretch;justify-content:stretch;background:radial-gradient(ellipse at 30% 50%,#FFFFFF 0%,#F4F4F2 55%,#EBEBE8 100%)">
+        <div style="position:relative;z-index:2;width:100%;display:flex;flex-wrap:wrap;align-items:stretch">
+          <div style="flex:1 1 340px;min-width:0;padding:clamp(32px,4.5vw,64px);display:flex;flex-direction:column;justify-content:flex-end;gap:22px">
+            <p class="kicker">فرمول‌های بالینی · بدون عطر · وگان</p>
+            <h1 style="margin:0;font-size:clamp(40px,4.8vw,68px);font-weight:800;line-height:1.25;letter-spacing:-.02em">اول پوست.<br />بعد آرایش.</h1>
+            <p style="margin:0;max-width:420px;font-size:16px;line-height:2;color:#3A3A3A">ترکیبات فعالِ اثبات‌شده، با درصد دقیق روی برچسب. تست‌شده زیر نظر متخصص پوست، با قیمتی منصفانه.</p>
+            <div style="display:flex;flex-wrap:wrap;gap:10px">
+              <a class="btn btn-dark" href="#shop">خرید پرفروش‌ها</a>
+              <a class="btn btn-line" href="#regimen">ساخت روتین من</a>
+            </div>
+          </div>
+          <div aria-hidden="true" dir="ltr" style="flex:1 1 320px;min-width:0;min-height:420px;position:relative">
+            <div style="position:absolute;left:50%;top:50%;width:480px;height:480px;transform:translate(-50%,-50%);border-radius:50%;background:radial-gradient(circle,rgba(255,255,255,1) 0%,rgba(255,255,255,.8) 35%,rgba(255,255,255,0) 68%)"></div>
+            <div style="position:absolute;left:50%;bottom:12%;width:420px;height:30px;transform:translateX(-50%);border-radius:50%;background:radial-gradient(ellipse,rgba(0,0,0,.2) 0%,rgba(0,0,0,0) 70%)"></div>
+            <div style="position:absolute;left:50%;bottom:14%;transform:translateX(-50%);display:flex;align-items:flex-end;gap:14px">
+              <div style="position:relative;width:104px;height:268px"><div style="position:absolute;bottom:0;left:50%;transform:translateX(-50%)"><ProductArt shape="tube" glass="#FFFFFF" nameEn="Ceramide + Oat Cleanser" scale={1.4} /></div></div>
+              <div style="position:relative;width:160px;height:340px"><div style="position:absolute;bottom:0;left:50%;transform:translateX(-50%)"><ProductArt shape="dropper" glass="#E9ECEB" nameEn="Niacinamide 10% + Zinc 1%" scale={1.8} /></div></div>
+              <div style="position:relative;width:122px;height:300px"><div style="position:absolute;bottom:0;left:50%;transform:translateX(-50%)"><ProductArt shape="dropper" glass="#B98451" nameEn="Retinal 0.1% Emulsion" scale={1.4} /></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style="flex:1 1 340px;min-width:0;display:flex;flex-direction:column;gap:16px">
+        <a href="/p/retinal-0-1-emulsion" class="stage" style="flex:1 1 300px;min-height:300px;justify-content:space-between;align-items:stretch;flex-direction:column;padding:28px;text-decoration:none;background:#111111;color:#FFFFFF">
+          <span style="position:relative;z-index:2;font-size:12px;font-weight:600;color:#BDBDBD">راهنمای شروع</span>
+          <div aria-hidden="true" dir="ltr" style="position:absolute;left:28px;bottom:26px;z-index:1"><ProductArt shape="dropper" glass="#B98451" nameEn="Retinal 0.1% Emulsion" scale={1.05} /></div>
+          <span style="position:relative;z-index:2;display:flex;flex-direction:column;gap:14px;max-width:220px">
+            <span style="font-size:26px;font-weight:700;line-height:1.45">شروع رتینال، بدون حدس و گمان.</span>
+            <span class="ulink" style="color:#FFFFFF">مشاهده‌ی محصول <Fragment set:html={arrow} /></span>
+          </span>
+        </a>
+        <a href="/p/peptide-lip-treatment" class="stage" style="flex:1 1 300px;min-height:300px;justify-content:space-between;align-items:stretch;flex-direction:column;padding:28px;text-decoration:none;background:radial-gradient(ellipse at 25% 55%,#FFFFFF 0%,#F4F4F2 60%)">
+          <span style="position:relative;z-index:2;font-size:12px;font-weight:600;color:#5C5C5C">تازه رسیده</span>
+          <div aria-hidden="true" dir="ltr" style="position:absolute;left:44px;bottom:30px;z-index:1"><ProductArt shape="stick" glass="#D9A797" nameEn="Peptide Lip Treatment" scale={1.25} /></div>
+          <span style="position:relative;z-index:2;display:flex;flex-direction:column;gap:14px;max-width:230px">
+            <span style="font-size:26px;font-weight:700;line-height:1.45">جدید: بالم لب پپتیدی</span>
+            <span class="ulink">خرید <Fragment set:html={arrow} /></span>
+          </span>
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <!-- Bestsellers with category tabs (client-side toggle; every product is in the HTML for crawlers) -->
+  <section id="shop" aria-labelledby="shop-h" class="wrap" style="padding-bottom:96px;scroll-margin-top:90px">
+    <div style="display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:20px">
+      <h2 id="shop-h" class="h2">پرفروش‌ها</h2>
+      <span style="font-size:13px;color:#5C5C5C" data-tab-count>{fa(bestsellers.length)} محصول</span>
+    </div>
+    <div class="scroll-x" role="tablist" aria-label="دسته‌بندی محصولات" style="display:flex;gap:28px;margin-bottom:28px;border-bottom:1px solid #E5E5E3">
+      <button class="tab" role="tab" aria-selected="true" data-tab="all">همه</button>
+      {cat.categories.map((c) => <button class="tab" role="tab" aria-selected="false" data-tab={c.slug}>{c.name}</button>)}
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:40px 16px" data-tab-grid>
+      {bestsellers.map((p, i) => <div data-cat={p.category} style="display:contents"><ProductCard p={p} eager={i < 2} /></div>)}
+    </div>
+  </section>
+
+  <!-- Common concerns -> SEO landing pages -->
+  <section aria-labelledby="concern-h" class="wrap" style="padding-bottom:96px">
+    <div style="display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:24px">
+      <h2 id="concern-h" class="h2">نگرانی‌های رایج پوست</h2>
+      <a class="ulink" href="#regimen">نمی‌دانید از کجا شروع کنید؟ <Fragment set:html={arrow} /></a>
+    </div>
+    <div class="tiles">
+      {cat.concerns.map((c) => (
+        <a class="tile" href={`/concern/${c.slug}`}>
+          <span style="display:flex;justify-content:space-between;align-items:flex-start;width:100%;gap:12px">
+            <span style="font-size:20px;font-weight:700;line-height:1.4">{c.name}</span>
+            <Fragment set:html={arrow.replace('width="14" height="14"', 'width="18" height="18"')} />
+          </span>
+          <span style="display:flex;flex-direction:column;gap:4px">
+            <span class="t-sub" style="font-size:13px;line-height:1.7">{c.sub}</span>
+            <span class="t-sub" style="font-size:12px;font-weight:600">{fa(cat.products.filter((p) => p.concerns.includes(c.slug)).length)} محصول</span>
+          </span>
+        </a>
+      ))}
+    </div>
+  </section>
+
+  <!-- Regimen builder -->
+  <section id="regimen" aria-labelledby="reg-h" style="background:#F4F4F2;scroll-margin-top:72px">
+    <RoutineBuilder client:visible products={routineProducts} goals={GOALS.map((g) => ({ id: g.id, label: g.label }))} />
+  </section>
+
+  <!-- Principles + glossary -->
+  <section id="glossary" aria-labelledby="gl-h" class="wrap" style="padding-top:96px;padding-bottom:96px;scroll-margin-top:72px">
+    <div class="principles">
+      {[
+        ['01', 'فرمول بالینی', 'ترکیبات فعال در همان غلظتی که در پژوهش‌های منتشرشده بررسی شده‌اند.'],
+        ['02', 'صداقت در برچسب', 'نام هر محصول، همان ترکیب و درصد اصلی آن است. بدون اسم‌های فانتزی.'],
+        ['03', 'بدون عطر، وگان', 'بدون عطر افزوده، بدون آزمایش روی حیوانات و بدون ترکیبات حیوانی.'],
+        ['04', 'قیمت منصفانه', 'هزینه را صرف فرمول می‌کنیم، نه بسته‌بندی و تبلیغات پرزرق‌وبرق.'],
+      ].map(([n, h, t]) => (
+        <div>
+          <span class="en r" style="font-size:13px;font-weight:600;color:#5C5C5C">{n}</span>
+          <h3 style="margin:0;font-size:19px;font-weight:700">{h}</h3>
+          <p style="margin:0;font-size:14px;line-height:1.9;color:#4A4A4A">{t}</p>
+        </div>
+      ))}
+    </div>
+
+    <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:flex-end;gap:16px;margin-bottom:10px">
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <p class="kicker">واژه‌نامه‌ی ترکیبات</p>
+        <h2 id="gl-h" class="h2">بدانید روی پوستتان چه می‌زنید.</h2>
+      </div>
+      <a class="ulink" href="/ingredients">همه‌ی ترکیبات <Fragment set:html={arrow} /></a>
+    </div>
+    <div role="table" aria-label="ترکیبات" style="border-bottom:1px solid #E5E5E3">
+      <div role="row" class="grow hide-sm" style="padding:12px 0;border-top:1px solid #111111;font-size:12px;font-weight:600;color:#5C5C5C">
+        <span role="columnheader">ترکیب</span><span role="columnheader">نام فارسی</span><span role="columnheader">چه می‌کند</span><span role="columnheader">غلظت</span>
+      </div>
+      {glossary.map((g) => (
+        <div role="row" class="grow">
+          <span role="cell" class="en r" style="font-size:16px;font-weight:600"><a href={`/ingredients/${g.slug}`}>{g.nameEn}</a></span>
+          <span role="cell" style="font-size:15px;font-weight:500">{g.nameFa}</span>
+          <span role="cell" class="g-does" style="font-size:14px;line-height:1.8;color:#4A4A4A">{g.does}</span>
+          <span role="cell" style="font-size:15px;font-weight:700">{g.pct ?? '—'}</span>
+        </div>
+      ))}
+    </div>
+  </section>
+
+  <!-- Skin-first makeup -->
+  {makeup.length > 0 && (
+    <section id="makeup" aria-labelledby="makeup-h" class="wrap" style="padding-bottom:96px;scroll-margin-top:90px">
+      <div style="display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:24px">
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <p class="kicker">آرایش پوست‌محور</p>
+          <h2 id="makeup-h" class="h2">آرایشی که فرمولش، مراقبت پوست است.</h2>
+        </div>
+        <a class="ulink" href="/shop/makeup">همه‌ی محصولات آرایشی <Fragment set:html={arrow} /></a>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px">
+        {makeup.map((p) => (
+          <article class="pcard" data-product={p.id} style="background:#F4F4F2">
+            <a href={`/p/${p.slug}`} tabindex="-1" aria-hidden="true" class="stage" style="height:300px;background:radial-gradient(ellipse at 50% 45%,#FFFFFF 0%,#F4F4F2 70%)">
+              <div class="glow"></div><div class="floor"></div>
+              <ProductArt shape={p.shape} glass={p.glass} nameEn={p.nameEn} image={p.image} />
+            </a>
+            <div style="padding:20px 22px 24px;display:flex;flex-direction:column;gap:6px;flex:1 1 auto;background:#FFFFFF;border:1px solid #EFEFED;border-top:0">
+              <h3 class="en r" style="margin:0;font-size:16px;font-weight:600"><a href={`/p/${p.slug}`}>{p.nameEn}</a></h3>
+              <p style="margin:0;font-size:14px;font-weight:500">{p.nameFa}</p>
+              <p style="margin:0;font-size:13px;line-height:1.8;color:#5C5C5C">{p.blurb ?? p.tagline}</p>
+              <div style="margin-top:auto;padding-top:14px;display:flex;align-items:center;justify-content:space-between;gap:12px">
+                <span style="font-size:15px;font-weight:700">{money(p.minPrice)}</span>
+                <button type="button" class="add" style="width:auto;padding:0 20px;min-height:42px" data-add={p.variants[0].id} data-name={p.nameFa} disabled={!p.inStock}>{p.inStock ? 'افزودن به سبد' : 'ناموجود'}</button>
+              </div>
+            </div>
+          </article>
+        ))}
+      </div>
+    </section>
+  )}
+
+  <!-- Membership + consultation -->
+  <section class="wrap" style="padding-bottom:96px">
+    <div style="display:flex;flex-wrap:wrap;gap:16px">
+      <div style="flex:1 1 480px;min-width:0;border:1px solid #111111;padding:clamp(28px,4vw,48px);display:flex;flex-direction:column;gap:22px">
+        <p class="kicker">باشگاه مشتریان</p>
+        <h2 class="h2">عضو شوید؛ از اولین خرید.</h2>
+        <ul class="benefits">
+          {['امتیاز با هر خرید', 'دسترسی زودتر به محصولات جدید', 'ذخیره‌ی روتین و سابقه‌ی خرید', 'هدیه‌ی روز تولد'].map((b) => <li><Fragment set:html={check} />{b}</li>)}
+        </ul>
+        <div><a class="btn btn-dark" href="/login">ساخت حساب کاربری</a></div>
+      </div>
+      <div style="flex:1 1 400px;min-width:0;background:#F4F4F2;padding:clamp(28px,4vw,48px);display:flex;flex-direction:column;justify-content:space-between;gap:22px">
+        <div style="display:flex;flex-direction:column;gap:14px">
+          <p class="kicker">مشاوره‌ی آنلاین</p>
+          <h2 class="h2">۱۵ دقیقه با کارشناس پوست.</h2>
+          <p style="margin:0;font-size:15px;line-height:2;color:#3A3A3A">از طریق تماس تصویری یا چت، روتین شما را بررسی می‌کنیم و بهترین ترکیب‌ها را پیشنهاد می‌دهیم. رایگان، بدون الزام به خرید.</p>
+        </div>
+        <div><a class="btn btn-line" href="/consultation">رزرو وقت مشاوره</a></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Reviews (real, approved reviews only) -->
+  {reviews.length > 0 && (
+    <section aria-labelledby="rev-h" style="border-top:1px solid #E5E5E3">
+      <div class="wrap" style="padding-top:88px;padding-bottom:88px">
+        <h2 id="rev-h" class="h2" style="margin-bottom:32px">از زبان مشتریان</h2>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:16px">
+          {reviews.map(({ r, slug, nameEn }) => (
+            <figure style="margin:0;border:1px solid #E5E5E3;padding:28px;display:flex;flex-direction:column;gap:18px">
+              <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:10px">
+                <Stars value={r.rating} />
+                {r.skin && <span style="font-size:12px;font-weight:600;border:1px solid #111111;padding:3px 9px">{r.skin}</span>}
+              </div>
+              <blockquote style="margin:0;font-size:16px;line-height:2">«{r.body}»</blockquote>
+              <figcaption style="margin-top:auto;padding-top:14px;border-top:1px solid #EFEFED;display:flex;flex-direction:column;gap:4px">
+                <span style="font-size:14px;font-weight:700">{r.name} {r.verified && <span style="font-weight:400;color:#5C5C5C">· خریدار تأییدشده</span>}</span>
+                <a class="en r" href={`/p/${slug}`} style="font-size:12px;color:#5C5C5C">{nameEn}</a>
+              </figcaption>
+            </figure>
+          ))}
+        </div>
+      </div>
+    </section>
+  )}
+
+  <!-- Newsletter -->
+  <section aria-labelledby="news-h" style="background:#F4F4F2">
+    <div class="wrap" style="padding-top:72px;padding-bottom:72px;display:flex;flex-wrap:wrap;gap:32px;align-items:center;justify-content:space-between">
+      <div style="flex:1 1 360px;min-width:0;display:flex;flex-direction:column;gap:10px">
+        <h2 id="news-h" class="h2">۱۵٪ تخفیف برای اولین روتین شما.</h2>
+        <p style="margin:0;font-size:15px;line-height:2;color:#3A3A3A">معرفی ترکیبات، محصولات جدید و نکته‌های علمی — حدوداً دو بار در ماه.</p>
+      </div>
+      <div style="flex:1 1 440px;min-width:0">
+        <form id="newsletter" style="display:flex;flex-direction:column;gap:10px" novalidate>
+          <label for="email" style="font-size:13px;font-weight:600">آدرس ایمیل</label>
+          <div style="display:flex;flex-wrap:wrap;gap:8px">
+            <input id="email" name="email" class="input" type="email" dir="ltr" placeholder="you@example.com" autocomplete="email" required style="flex:1 1 240px;min-height:50px;border-color:#111111" />
+            <button type="submit" class="btn btn-dark">عضویت</button>
+          </div>
+          <p role="alert" data-err hidden style="margin:0;font-size:13px;color:#A3261B">لطفاً یک ایمیل معتبر وارد کنید.</p>
+          <p style="margin:0;font-size:12px;color:#5C5C5C">با عضویت، <a href="/privacy" style="text-decoration:underline">سیاست حفظ حریم خصوصی</a> را می‌پذیرید.</p>
+        </form>
+        <div role="status" id="newsletter-ok" hidden style="background:#FFFFFF;border:1px solid #111111;padding:24px">
+          <p style="margin:0;font-size:20px;font-weight:700">کد ۱۵٪ تخفیف در راه است.</p>
+          <p style="margin:6px 0 0;font-size:14px;color:#3A3A3A">آن را به ایمیل شما فرستادیم.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+</Layout>
+
+<style>
+  .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); border-bottom: 1px solid #E5E5E3; border-inline-end: 1px solid #E5E5E3; }
+  .tile { background: #FFFFFF; border-inline-start: 1px solid #E5E5E3; border-top: 1px solid #E5E5E3; min-height: 132px; padding: 22px 24px; display: flex; flex-direction: column; justify-content: space-between; gap: 16px; color: #111111; transition: background .2s; text-decoration: none; }
+  .tile:hover { background: #F6F6F4; text-decoration: none; }
+  .t-sub { color: #5C5C5C; }
+  .principles { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); border-top: 1px solid #111111; margin-bottom: 88px; }
+  .principles > div { padding: 28px 24px; display: flex; flex-direction: column; gap: 10px; }
+  .principles > div + div { border-inline-start: 1px solid #E5E5E3; }
+  .grow { display: grid; grid-template-columns: minmax(150px,1.1fr) minmax(120px,1fr) minmax(200px,2fr) 90px; gap: 20px; align-items: center; padding: 20px 0; border-top: 1px solid #E5E5E3; }
+  @media (max-width: 760px) { .grow { grid-template-columns: 1fr 1fr; } .grow .g-does { grid-column: 1 / -1; } }
+  .benefits { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0 24px; }
+  .benefits li { display: flex; gap: 10px; align-items: flex-start; padding: 12px 0; border-top: 1px solid #E5E5E3; font-size: 14px; line-height: 1.8; }
+</style>
+
+<script>
+  // Category tabs for the bestsellers grid
+  const tabs = document.querySelectorAll<HTMLButtonElement>('[data-tab]');
+  const items = document.querySelectorAll<HTMLElement>('[data-tab-grid] > [data-cat]');
+  const count = document.querySelector('[data-tab-count]');
+  tabs.forEach((t) => t.addEventListener('click', () => {
+    tabs.forEach((x) => x.setAttribute('aria-selected', String(x === t)));
+    let n = 0;
+    items.forEach((el) => { const show = t.dataset.tab === 'all' || el.dataset.cat === t.dataset.tab; el.style.display = show ? 'contents' : 'none'; if (show) n++; });
+    if (count) count.textContent = String(n).replace(/[0-9]/g, (d) => '۰۱۲۳۴۵۶۷۸۹'[+d]) + ' محصول';
+  }));
+
+  // Newsletter
+  const form = document.getElementById('newsletter') as HTMLFormElement;
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const email = (form.elements.namedItem('email') as HTMLInputElement).value.trim();
+    const err = form.querySelector<HTMLElement>('[data-err]')!;
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { err.hidden = false; return; }
+    err.hidden = true;
+    const res = await fetch('/api/subscribe', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email }) });
+    if (res.ok) { form.hidden = true; document.getElementById('newsletter-ok')!.hidden = false; } else { err.hidden = false; }
+  });
+</script>

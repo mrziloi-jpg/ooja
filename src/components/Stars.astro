@@ -1,0 +1,11 @@
+---
+import { rating as fmtRating } from '~/lib/format';
+interface Props { value: number; size?: number }
+const { value, size = 12 } = Astro.props;
+const filled = Math.round(value);
+---
+<span style="display:inline-flex;gap:1px" role="img" aria-label={`${fmtRating(value)} از ۵ ستاره`}>
+  {[0, 1, 2, 3, 4].map((i) => (
+    <svg class={`star ${i < filled ? 'on' : 'off'}`} style={`width:${size}px;height:${size}px`} viewBox="0 0 24 24" stroke-linejoin="round" aria-hidden="true"><path d="M12 2.5l2.9 6 6.6.9-4.8 4.6 1.2 6.5L12 17.4l-5.9 3.1 1.2-6.5L2.5 9.4l6.6-.9z"></path></svg>
+  ))}
+</span>

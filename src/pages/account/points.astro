@@ -1,0 +1,54 @@
+---
+import AccountLayout from '~/layouts/AccountLayout.astro';
+import { desc, eq } from 'drizzle-orm';
+import { db, schema as s } from '~/db';
+import { redeemPoints, tierOf } from '~/lib/account';
+import { STORE } from '~/lib/config';
+import { fa, jalaliDate, money } from '~/lib/format';
+
+const u = Astro.locals.user!;
+if (Astro.request.method === 'POST') {
+  const ok = await redeemPoints(u.id);
+  const msg = ok ? `${fa(STORE.redeemPoints)} امتیاز به ${money(STORE.redeemCredit)} اعتبار خرید تبدیل شد. در صفحه‌ی پرداخت قابل استفاده است.` : 'امتیاز کافی ندارید.';
+  return Astro.redirect(`/account/points?${ok ? 'ok' : 'err'}=${encodeURIComponent(msg)}`, 303);
+}
+
+const [tier, history] = await Promise.all([
+  tierOf(u),
+  db.select({ l: s.pointsLedger, code: s.orders.code }).from(s.pointsLedger)
+    .leftJoin(s.orders, eq(s.orders.id, s.pointsLedger.orderId))
+    .where(eq(s.pointsLedger.userId, u.id)).orderBy(desc(s.pointsLedger.createdAt)).limit(50),
+]);
+const REASON: Record<string, string> = { order: 'خرید سفارش', redeem: 'تبدیل به اعتبار خرید', adjust: 'اصلاح توسط پشتیبانی' };
+---
+<AccountLayout title="امتیازها و باشگاه مشتریان" section="points">
+  <h1 class="acc-h">امتیازها و باشگاه مشتریان</h1>
+  <div class="card" style="background:#111111;color:#FFFFFF;border-color:#111111">
+    <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:12px">
+      <span style="font-size:40px;font-weight:300">{fa(u.points)} امتیاز</span>
+      <span style="font-size:13px;color:#CFCFCF">سطح فعلی: {tier.tier}</span>
+    </div>
+    <div style="height:4px;background:#333333;display:flex" role="img" aria-label={`${fa(tier.pct)} درصد تا سطح بعد`}><div style={`width:${tier.pct}%;background:#FFFFFF`}></div></div>
+    <p style="margin:0;font-size:13px;color:#CFCFCF">{tier.next ? `${money(tier.toNext)} خرید دیگر تا سطح ${tier.next}` : 'شما در بالاترین سطح باشگاه هستید.'} · هر ۱۰٬۰۰۰ تومان خرید = ۱ امتیاز</p>
+  </div>
+
+  <div class="card">
+    <p style="margin:0;font-size:15px;font-weight:700">تبدیل امتیاز به اعتبار</p>
+    <p style="margin:0;font-size:13px;color:#3A3A3A">هر {fa(STORE.redeemPoints)} امتیاز = {money(STORE.redeemCredit)} اعتبار خرید.</p>
+    <form method="post" style="display:flex;flex-wrap:wrap;gap:10px;align-items:center">
+      <button class="btn btn-dark" disabled={u.points < STORE.redeemPoints}>تبدیل {fa(STORE.redeemPoints)} امتیاز</button>
+      {u.credit > 0 && <span style="font-size:13px;font-weight:600">اعتبار فعلی شما: {money(u.credit)}</span>}
+    </form>
+  </div>
+
+  <div class="card">
+    <p style="margin:0;font-size:15px;font-weight:700">تاریخچه</p>
+    {history.length === 0 && <p style="margin:0;font-size:14px;color:#5C5C5C">با اولین خرید، امتیازها اینجا نمایش داده می‌شوند.</p>}
+    {history.map(({ l, code }) => (
+      <div style="display:flex;justify-content:space-between;gap:12px;padding-top:10px;border-top:1px solid #EFEFED;font-size:14px">
+        <span>{REASON[l.reason] ?? l.reason}{code && <> <span class="en">{code}</span></>} <span style="color:#5C5C5C;font-size:12px">· {jalaliDate(l.createdAt)}</span></span>
+        <span style="font-weight:700" dir="ltr">{l.delta > 0 ? '+' : '−'}{fa(Math.abs(l.delta))}</span>
+      </div>
+    ))}
+  </div>
+</AccountLayout>

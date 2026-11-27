@@ -1,0 +1,94 @@
+---
+import AccountLayout from '~/layouts/AccountLayout.astro';
+import { and, desc, eq } from 'drizzle-orm';
+import { db, schema as s } from '~/db';
+import { str } from '~/lib/admin';
+import { STORE } from '~/lib/config';
+import { toEn } from '~/lib/format';
+
+const u = Astro.locals.user!;
+const mine = (id: number) => and(eq(s.addresses.id, id), eq(s.addresses.userId, u.id));
+let error: string | null = null;
+let submitted: FormData | null = null;
+
+if (Astro.request.method === 'POST') {
+  const f = await Astro.request.formData();
+  const id = Number(f.get('id')) || null;
+  const action = f.get('action');
+  if (action === 'delete' && id) {
+    await db.delete(s.addresses).where(mine(id));
+    return Astro.redirect('/account/addresses?ok=' + encodeURIComponent('آدرس حذف شد.'), 303);
+  }
+  if (action === 'default' && id) {
+    await db.transaction(async (tx) => {
+      await tx.update(s.addresses).set({ isDefault: false }).where(eq(s.addresses.userId, u.id));
+      await tx.update(s.addresses).set({ isDefault: true }).where(mine(id));
+    });
+    return Astro.redirect('/account/addresses', 303);
+  }
+  // Save (create or edit)
+  submitted = f;
+  const v = {
+    title: str(f.get('title')) || null, firstName: str(f.get('firstName')), lastName: str(f.get('lastName')),
+    province: str(f.get('province')), city: str(f.get('city')), address: str(f.get('address')),
+    postal: toEn(str(f.get('postal'))).replace(/\D/g, ''), landline: toEn(str(f.get('landline'))) || null,
+  };
+  if (!v.firstName || !v.lastName || !v.city || v.address.length < 10) error = 'نام، نام خانوادگی، شهر و نشانی کامل لازم است.';
+  else if (!STORE.provinces.includes(v.province)) error = 'استان را انتخاب کنید.';
+  else if (!/^\d{10}$/.test(v.postal)) error = 'کد پستی باید ۱۰ رقم باشد.';
+  else {
+    if (id) await db.update(s.addresses).set(v).where(mine(id));
+    else {
+      // The first saved address becomes the default.
+      const existing = await db.select({ id: s.addresses.id }).from(s.addresses).where(eq(s.addresses.userId, u.id)).limit(1);
+      await db.insert(s.addresses).values({ ...v, userId: u.id, isDefault: existing.length === 0 });
+    }
+    return Astro.redirect('/account/addresses?ok=' + encodeURIComponent('آدرس ذخیره شد.'), 303);
+  }
+}
+
+const list = await db.select().from(s.addresses).where(eq(s.addresses.userId, u.id)).orderBy(desc(s.addresses.isDefault), desc(s.addresses.id));
+const editId = Number(Astro.url.searchParams.get('edit')) || (submitted ? Number(submitted.get('id')) || null : null);
+const editing = editId ? list.find((a) => a.id === editId) : null;
+const showForm = Astro.url.searchParams.has('new') || !!editing || !!error;
+const val = (k: keyof typeof s.addresses.$inferSelect, fallback = '') => submitted?.has(k) ? String(submitted.get(k)) : String(editing?.[k] ?? fallback);
+---
+<AccountLayout title="آدرس‌های من" section="addresses">
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:12px">
+    <h1 class="acc-h">آدرس‌های من</h1>
+    {!showForm && <a class="btn btn-dark" href="?new">افزودن آدرس</a>}
+  </div>
+
+  {showForm && (
+    <form method="post" class="card" style="border-color:#111111;display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px">
+      {editing && <input type="hidden" name="id" value={editing.id} />}
+      {error && <p role="alert" class="err-t" style="grid-column:1 / -1;margin:0;font-size:13px">{error}</p>}
+      <label class="field">عنوان<input class="input" name="title" value={val('title')} placeholder="مثلاً خانه" /></label>
+      <label class="field">نام گیرنده<input class="input" name="firstName" required value={val('firstName', u.firstName ?? '')} autocomplete="given-name" /></label>
+      <label class="field">نام خانوادگی<input class="input" name="lastName" required value={val('lastName', u.lastName ?? '')} autocomplete="family-name" /></label>
+      <label class="field">استان
+        <select class="input" name="province">{STORE.provinces.map((p) => <option selected={val('province', 'تهران') === p}>{p}</option>)}</select>
+      </label>
+      <label class="field">شهر<input class="input" name="city" required value={val('city')} autocomplete="address-level2" /></label>
+      <label class="field" style="grid-column:1 / -1">نشانی کامل (خیابان، کوچه، پلاک، واحد)<textarea class="input" name="address" rows="2" required minlength="10" autocomplete="street-address" style="min-height:80px">{val('address')}</textarea></label>
+      <label class="field">کد پستی ۱۰ رقمی<input class="input en" name="postal" inputmode="numeric" required value={val('postal')} style="text-align:left" autocomplete="postal-code" /></label>
+      <label class="field">تلفن ثابت (اختیاری)<input class="input en" name="landline" inputmode="numeric" value={val('landline')} style="text-align:left" /></label>
+      <div style="grid-column:1 / -1;display:flex;gap:10px"><button class="btn btn-dark">ذخیره</button><a class="btn btn-line" href="/account/addresses">انصراف</a></div>
+    </form>
+  )}
+
+  {list.length === 0 && !showForm && <p style="margin:0;color:#5C5C5C">هنوز آدرسی ذخیره نکرده‌اید. آدرس‌ها هنگام خرید هم ذخیره می‌شوند.</p>}
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px">
+    {list.map((a) => (
+      <div class="card" style={`border-color:${a.isDefault ? '#111111' : '#E5E5E3'}`}>
+        <div style="display:flex;justify-content:space-between;align-items:center"><span style="font-size:15px;font-weight:700">{a.title ?? 'آدرس'}</span>{a.isDefault && <span class="status solid">پیش‌فرض</span>}</div>
+        <p style="margin:0;font-size:14px;line-height:1.9;color:#3A3A3A">{a.firstName} {a.lastName} · {a.province}، {a.city}، {a.address} · <span class="en">{a.postal}</span></p>
+        <div style="display:flex;gap:16px;margin-top:auto;flex-wrap:wrap">
+          <a class="lnk" href={`?edit=${a.id}`}>ویرایش</a>
+          {!a.isDefault && <form method="post"><input type="hidden" name="id" value={a.id} /><button class="lnk" name="action" value="default">پیش‌فرض کن</button></form>}
+          <form method="post"><input type="hidden" name="id" value={a.id} /><button class="lnk" name="action" value="delete">حذف</button></form>
+        </div>
+      </div>
+    ))}
+  </div>
+</AccountLayout>

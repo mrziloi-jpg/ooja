@@ -1,0 +1,65 @@
+---
+import AdminLayout from '~/layouts/AdminLayout.astro';
+import { sql } from '~/db';
+import { tier } from '~/lib/admin';
+import { fa, jalaliDate, money, SKIN_TYPES, toEn } from '~/lib/format';
+
+const q = (Astro.url.searchParams.get('q') ?? '').trim();
+const like = `%${toEn(q)}%`;
+// Customers = registered users plus guest buyers (grouped by phone), with lifetime spend from counted orders.
+const rows = await sql<{ phone: string; name: string | null; skin: string | null; orders: number; spend: number; last: string | null; joined: string | null; sms: boolean | null; points: number | null; registered: boolean }[]>`
+  WITH o AS (
+    SELECT phone, count(*)::int AS n, sum(total)::bigint AS spend, max(created_at) AS last, max(first_name || ' ' || last_name) AS name
+    FROM orders WHERE status NOT IN ('awaiting_payment', 'canceled') GROUP BY phone
+  )
+  SELECT coalesce(u.phone, o.phone) AS phone,
+    coalesce(nullif(trim(coalesce(u.first_name, '') || ' ' || coalesce(u.last_name, '')), ''), o.name) AS name,
+    u.skin_type AS skin, coalesce(o.n, 0) AS orders, coalesce(o.spend, 0) AS spend, o.last, u.created_at AS joined,
+    u.sms_opt_in AS sms, u.points, (u.id IS NOT NULL) AS registered
+  FROM users u FULL OUTER JOIN o ON o.phone = u.phone
+  WHERE ${q ? sql`(coalesce(u.phone, o.phone) LIKE ${like} OR coalesce(u.first_name, '') || ' ' || coalesce(u.last_name, '') || ' ' || coalesce(o.name, '') ILIKE ${'%' + q + '%'})` : sql`true`}
+  ORDER BY spend DESC, joined DESC NULLS LAST LIMIT ${Astro.url.searchParams.get('format') === 'csv' ? 100000 : 300}`;
+
+if (Astro.url.searchParams.get('format') === 'csv') {
+  const esc = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const head = ['name', 'phone', 'skin_type', 'orders', 'total_spend_toman', 'last_order', 'joined', 'sms_opt_in', 'points', 'tier'];
+  const body = rows.map((r) => [r.name, r.phone, r.skin ? SKIN_TYPES[r.skin] : '', r.orders, r.spend, r.last ? new Date(r.last).toISOString().slice(0, 10) : '', r.joined ? new Date(r.joined).toISOString().slice(0, 10) : '', r.sms ? 'yes' : r.sms === false ? 'no' : '', r.points ?? '', tier(Number(r.spend)).label].map(esc).join(','));
+  // BOM so Excel opens Persian text correctly.
+  return new Response('﻿' + [head.join(','), ...body].join('\r\n'), {
+    headers: { 'content-type': 'text/csv; charset=utf-8', 'content-disposition': `attachment; filename="customers-${new Date().toISOString().slice(0, 10)}.csv"`, 'cache-control': 'no-store' },
+  });
+}
+---
+<AdminLayout title="مشتریان" section="customers" searchAction="/admin/customers">
+  <section class="panel">
+    <form method="get" style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:14px 20px;border-bottom:1px solid #EFEFED">
+      <label class="sr-only" for="cq">جستجوی مشتری</label>
+      <input id="cq" class="input" type="search" name="q" placeholder="نام یا شماره‌ی موبایل" value={q} style="flex:1 1 220px" />
+      <button class="btn btn-line btn-sm">جستجو</button>
+      <a class="btn btn-line btn-sm" href={`/admin/customers?format=csv${q ? `&q=${encodeURIComponent(q)}` : ''}`}>خروجی Excel</a>
+    </form>
+    <div class="scroll-x">
+      <table class="tbl">
+        <thead><tr><th scope="col">مشتری</th><th scope="col">موبایل</th><th scope="col">نوع پوست</th><th scope="col">سفارش‌ها</th><th scope="col">مجموع خرید</th><th scope="col">سطح</th><th scope="col">آخرین خرید</th><th scope="col">پیامک تبلیغاتی</th></tr></thead>
+        <tbody>
+          {rows.map((c) => {
+            const t = tier(Number(c.spend));
+            return (
+              <tr>
+                <td style="font-weight:700">{c.name ?? '—'} {!c.registered && <span class="mute" style="font-weight:400;font-size:12px">(مهمان)</span>}</td>
+                <td><a class="en r" href={`/admin/orders?q=${c.phone}`}>{c.phone}</a></td>
+                <td>{c.skin ? SKIN_TYPES[c.skin] : '—'}</td>
+                <td>{fa(c.orders)}</td>
+                <td style="white-space:nowrap">{money(Number(c.spend))}</td>
+                <td>{c.orders > 0 ? <span class={`st ${t.cls}`}>{t.label}</span> : '—'}</td>
+                <td>{c.last ? jalaliDate(c.last, { month: 'long', day: 'numeric' }) : '—'}</td>
+                <td>{c.sms === null ? '—' : c.sms ? 'بله' : 'خیر'}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+    {rows.length === 0 && <p style="margin:0;padding:32px;text-align:center;font-size:14px;color:#5C5C5C">مشتری‌ای پیدا نشد.</p>}
+  </section>
+</AdminLayout>

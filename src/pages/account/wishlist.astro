@@ -1,0 +1,68 @@
+---
+import AccountLayout from '~/layouts/AccountLayout.astro';
+import ProductArt from '~/components/ProductArt.astro';
+import { and, eq } from 'drizzle-orm';
+import { db, schema as s } from '~/db';
+import { getCatalog } from '~/lib/catalog';
+import { money } from '~/lib/format';
+
+const u = Astro.locals.user!;
+if (Astro.request.method === 'POST') {
+  const f = await Astro.request.formData();
+  const productId = Number(f.get('productId'));
+  if (f.get('action') === 'remove') await db.delete(s.wishlist).where(and(eq(s.wishlist.userId, u.id), eq(s.wishlist.productId, productId)));
+  if (f.get('action') === 'alert') await db.insert(s.stockAlerts).values({ userId: u.id, productId }).onConflictDoNothing();
+  return Astro.redirect('/account/wishlist', 303);
+}
+
+const [rows, alerts, cat] = await Promise.all([
+  db.select({ productId: s.wishlist.productId }).from(s.wishlist).where(eq(s.wishlist.userId, u.id)),
+  db.select({ productId: s.stockAlerts.productId }).from(s.stockAlerts).where(eq(s.stockAlerts.userId, u.id)),
+  getCatalog(),
+]);
+const alerted = new Set(alerts.map((a) => a.productId));
+// Products that were deactivated drop out of the catalog, so they disappear from the list too.
+const items = rows.map((r) => cat.byId.get(r.productId)).filter((p) => !!p);
+---
+<AccountLayout title="علاقه‌مندی‌ها" section="wishlist">
+  <h1 class="acc-h">علاقه‌مندی‌ها</h1>
+  {items.length === 0 && (
+    <div style="background:#F4F4F2;padding:40px;text-align:center;display:flex;flex-direction:column;align-items:center;gap:12px">
+      <p style="margin:0;font-weight:700">فهرست علاقه‌مندی‌ها خالی است.</p>
+      <p style="margin:0;font-size:14px;color:#5C5C5C">روی ♡ هر محصول بزنید تا اینجا ذخیره شود.</p>
+      <a class="btn btn-dark" href="/shop">مشاهده‌ی محصولات</a>
+    </div>
+  )}
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:16px">
+    {items.map((p) => {
+      const v = p.variants.find((x) => x.stock > 0) ?? p.variants[0];
+      return (
+        <div class="card" style="padding:0;gap:0" data-product={p.id}>
+          <a href={`/p/${p.slug}`} class="stage" style="height:200px" aria-label={p.nameFa}>
+            <div style="transform:scale(.75)"><ProductArt shape={p.shape} glass={p.glass} nameEn={p.nameEn} image={p.image} /></div>
+          </a>
+          <div style="padding:16px;display:flex;flex-direction:column;gap:6px">
+            <a href={`/p/${p.slug}`} class="en r" style="font-size:14px;font-weight:600">{p.nameEn}</a>
+            <span style="font-size:14px;font-weight:700">{money(v.price)}</span>
+            {p.inStock ? (
+              <button type="button" class="btn btn-dark" data-add={v.id} data-name={p.nameFa}>افزودن به سبد</button>
+            ) : (
+              <>
+                <span style="font-size:12px;color:#A3261B;font-weight:600">ناموجود</span>
+                {alerted.has(p.id)
+                  ? <span style="font-size:13px;font-weight:600">موجود شد، پیامک می‌گیرید ✓</span>
+                  : <form method="post"><input type="hidden" name="productId" value={p.id} /><button class="btn btn-line" name="action" value="alert" style="width:100%">موجود شد خبرم کن</button></form>}
+              </>
+            )}
+            <form method="post"><input type="hidden" name="productId" value={p.id} /><button class="lnk" name="action" value="remove" data-unwish={p.id}>حذف</button></form>
+          </div>
+        </div>
+      );
+    })}
+  </div>
+</AccountLayout>
+
+<script define:vars={{ ids: items.map((p) => p.id) }}>
+  // The account's saved list is the source of truth; mirror it into localStorage so hearts match on this device.
+  localStorage.setItem('wish', JSON.stringify(ids));
+</script>

@@ -1,0 +1,39 @@
+---
+import AdminLayout from '~/layouts/AdminLayout.astro';
+import { sql } from '~/db';
+import { fa } from '~/lib/format';
+import { functionLabel } from '~/lib/ingredients';
+
+const rows = await sql<{ id: number; slug: string; name_en: string; name_fa: string; functions: string[]; body: string | null; products: number }[]>`
+  SELECT i.id, i.slug, i.name_en, i.name_fa, i.functions, i.body,
+    (SELECT count(*)::int FROM product_ingredients pi WHERE pi.ingredient_id = i.id) AS products
+  FROM ingredients i ORDER BY i.sort, i.id`;
+const words = (t: string | null) => (t ? t.trim().split(/\s+/).length : 0);
+---
+<AdminLayout title="واژه‌نامه‌ی ترکیبات" section="ingredients">
+  <section class="panel">
+    <div class="ph"><h2>ترکیبات</h2><a class="btn btn-dark btn-sm" href="/admin/ingredients/new">+ ترکیب جدید</a></div>
+    <p class="mute pb" style="margin:0;font-size:13px;line-height:1.9">
+      هر ترکیب یک صفحه‌ی جداگانه در سایت دارد که در گوگل دیده می‌شود. هرچه متن مقاله‌ی آن کامل‌تر باشد (پیشنهاد: ۳۰۰ کلمه یا بیشتر)، شانس دیده شدن در جستجوهایی مثل «نیاسینامید چیست» بیشتر است.
+    </p>
+    <div class="scroll-x">
+      <table class="tbl">
+        <thead><tr><th scope="col">ترکیب</th><th scope="col">کارکرد</th><th scope="col">محصولات</th><th scope="col">متن مقاله</th><th scope="col"></th></tr></thead>
+        <tbody>
+          {rows.map((g) => {
+            const w = words(g.body);
+            return (
+              <tr>
+                <td><span style="display:flex;flex-direction:column;gap:2px"><a class="en" href={`/admin/ingredients/${g.id}`} style="font-weight:700">{g.name_en}</a><span class="mute" style="font-size:12px">{g.name_fa}</span></span></td>
+                <td>{functionLabel(g.functions) || '—'}</td>
+                <td>{fa(g.products)}</td>
+                <td>{w === 0 ? <span class="st s-canceled">ندارد</span> : w < 300 ? <span class="st s-ready">{fa(w)} کلمه</span> : <span class="st s-delivered">{fa(w)} کلمه</span>}</td>
+                <td style="white-space:nowrap"><a class="rowbtn" href={`/admin/ingredients/${g.id}`}>ویرایش</a> · <a class="rowbtn" href={`/ingredients/${g.slug}`} target="_blank">مشاهده</a></td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  </section>
+</AdminLayout>

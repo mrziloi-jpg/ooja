@@ -1,0 +1,20 @@
+---
+// Real photo when uploaded; otherwise the design's CSS bottle in the product's shape and glass color.
+interface Props { shape: string; glass: string; nameEn: string; image?: string | null; label?: string; scale?: number; eager?: boolean }
+const { shape, glass, nameEn, image, label = nameEn, scale, eager = false } = Astro.props;
+const style = scale ? `transform: scale(${scale}); transform-origin: bottom center` : undefined;
+---
+{image ? (
+  <picture>
+    <source type="image/avif" srcset={`${image}-480.avif 480w, ${image}-960.avif 960w`} sizes="(max-width: 760px) 50vw, 25vw" />
+    <img class="photo" src={`${image}-960.webp`} srcset={`${image}-480.webp 480w, ${image}-960.webp 960w`} sizes="(max-width: 760px) 50vw, 25vw"
+      alt={nameEn} loading={eager ? 'eager' : 'lazy'} fetchpriority={eager ? 'high' : 'auto'} decoding="async" width="960" height="1200" />
+  </picture>
+) : (
+  <div class="pshape" aria-hidden="true" dir="ltr" style={style}>
+    {shape === 'dropper' && <div class="dropper"><div class="d-bulb cap"></div><div class="d-neck cap"></div><div class="d-body gloss" style={`background:${glass}`}><div class="label"><span class="l-brand">LUMIÈRE</span><span class="l-f">{label}</span></div></div></div>}
+    {shape === 'tube' && <div class="tube"><div class="t-body gloss" style={`background:${glass}`}><div class="label"><span class="l-brand">LUMIÈRE</span><span class="l-f">{label}</span></div></div><div class="t-cap cap"></div></div>}
+    {shape === 'jar' && <div class="jar"><div class="j-lid cap"></div><div class="j-body gloss" style={`background:${glass}`}><div class="label" style="width:70%"><span class="l-brand">LUMIÈRE</span><span class="l-f">{label}</span></div></div></div>}
+    {shape === 'stick' && <div class="stick"><div class="s-cap cap"></div><div class="s-body gloss" style={`background:${glass}`}><span class="l-v">LUMIÈRE</span></div></div>}
+  </div>
+)}

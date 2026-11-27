@@ -1,0 +1,176 @@
+---
+import AdminLayout from '~/layouts/AdminLayout.astro';
+import { sql } from '~/db';
+import { fa, group, money, jalaliDate } from '~/lib/format';
+import { getSettings } from '~/lib/settings';
+import { ADMIN_STATUS_LABELS } from '~/lib/admin';
+
+const RANGES = { today: 'امروز', '7': '۷ روز', '30': '۳۰ روز' } as const;
+type Range = keyof typeof RANGES;
+const range = (Astro.url.searchParams.get('range') ?? '7') as Range;
+if (!(range in RANGES)) return Astro.redirect('/admin');
+
+// Period boundaries in Tehran time. "today" is bucketed by hour, the others by day.
+const days = range === 'today' ? 1 : Number(range);
+const bucket = range === 'today' ? 'hour' : 'day';
+const TZ = 'Asia/Tehran';
+const start = sql`(date_trunc('day', now() AT TIME ZONE ${TZ}) - make_interval(days => ${days - 1})) AT TIME ZONE ${TZ}`;
+const prevStart = sql`(date_trunc('day', now() AT TIME ZONE ${TZ}) - make_interval(days => ${days * 2 - 1})) AT TIME ZONE ${TZ}`;
+// Revenue counts paid and cash-on-delivery orders that weren't canceled.
+const counted = sql`status NOT IN ('awaiting_payment', 'canceled')`;
+
+const { lowStock } = await getSettings();
+const [[kpi], [prev], series, top, action, low, consults] = await Promise.all([
+  sql<{ sales: number; orders: number; customers: number }[]>`
+    SELECT coalesce(sum(total), 0)::bigint AS sales, count(*)::int AS orders,
+      (SELECT count(*)::int FROM users WHERE created_at >= ${start}) AS customers
+    FROM orders WHERE ${counted} AND created_at >= ${start}`,
+  sql<{ sales: number; orders: number; customers: number }[]>`
+    SELECT coalesce(sum(total), 0)::bigint AS sales, count(*)::int AS orders,
+      (SELECT count(*)::int FROM users WHERE created_at >= ${prevStart} AND created_at < ${start}) AS customers
+    FROM orders WHERE ${counted} AND created_at >= ${prevStart} AND created_at < ${start}`,
+  sql<{ d: string; h: number; sales: number }[]>`
+    SELECT to_char(g.b, 'YYYY-MM-DD') AS d, extract(hour FROM g.b)::int AS h, coalesce(sum(o.total), 0)::bigint AS sales
+    FROM generate_series(date_trunc(${bucket}, ${start} AT TIME ZONE ${TZ}), date_trunc(${bucket}, now() AT TIME ZONE ${TZ}), ${'1 ' + bucket}::interval) AS g(b)
+    LEFT JOIN orders o ON date_trunc(${bucket}, o.created_at AT TIME ZONE ${TZ}) = g.b AND o.status NOT IN ('awaiting_payment', 'canceled')
+    GROUP BY g.b ORDER BY g.b`,
+  sql<{ name: string; units: number }[]>`
+    SELECT oi.name_en AS name, sum(oi.qty)::int AS units FROM order_items oi JOIN orders o ON o.id = oi.order_id
+    WHERE o.status NOT IN ('awaiting_payment', 'canceled') AND o.created_at >= ${start}
+    GROUP BY oi.name_en ORDER BY units DESC LIMIT 5`,
+  sql<{ id: number; code: string; first_name: string; last_name: string; status: string; created_at: string }[]>`
+    SELECT id, code, first_name, last_name, status, created_at FROM orders WHERE status IN ('pending', 'returned') ORDER BY created_at LIMIT 6`,
+  sql<{ id: number; name: string; label: string; stock: number }[]>`
+    SELECT p.id, p.name_en AS name, v.label, v.stock FROM variants v JOIN products p ON p.id = v.product_id
+    WHERE v.stock < ${lowStock} ORDER BY v.stock LIMIT 6`,
+  sql<{ starts_at: string; name: string; kind: string }[]>`
+    SELECT starts_at, name, kind FROM consultations
+    WHERE status = 'booked' AND (starts_at AT TIME ZONE ${TZ})::date = (now() AT TIME ZONE ${TZ})::date ORDER BY starts_at LIMIT 4`,
+]);
+
+const delta = (a: number, b: number) => {
+  if (!b) return a ? { text: 'جدید', color: '#111111' } : { text: '—', color: '#5C5C5C' };
+  const d = Math.round(((a - b) / b) * 100);
+  return { text: `${d >= 0 ? '+' : '−'}${fa(Math.abs(d))}٪`, color: d < 0 ? '#A3261B' : '#111111' };
+};
+const aov = kpi.orders ? Math.round(kpi.sales / kpi.orders) : 0;
+const prevAov = prev.orders ? Math.round(prev.sales / prev.orders) : 0;
+const kpis = [
+  { label: 'فروش', value: money(Number(kpi.sales)), d: delta(Number(kpi.sales), Number(prev.sales)) },
+  { label: 'سفارش‌ها', value: fa(kpi.orders), d: delta(kpi.orders, prev.orders) },
+  { label: 'میانگین سبد خرید', value: money(aov), d: delta(aov, prevAov) },
+  { label: 'مشتری جدید', value: fa(kpi.customers), d: delta(kpi.customers, prev.customers) },
+];
+
+const max = Math.max(1, ...series.map((x) => Number(x.sales)));
+const KIND: Record<string, string> = { video: 'تصویری', chat: 'چت', phone: 'صوتی' };
+// Buckets come back as Tehran wall-clock date/hour strings, so labels don't depend on the server's time zone.
+const label = (x: { d: string; h: number }) => range === 'today'
+  ? `ساعت ${fa(x.h)}`
+  : jalaliDate(new Date(`${x.d}T12:00:00+03:30`), { day: 'numeric', month: 'long' });
+const topMax = Math.max(1, ...top.map((t) => t.units));
+---
+<AdminLayout title="داشبورد" section="dash">
+  <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:12px">
+    <p style="margin:0;font-size:14px;color:#5C5C5C">خلاصه‌ی عملکرد فروشگاه</p>
+    <nav aria-label="بازه‌ی زمانی" style="display:flex;background:#FFFFFF;border:1px solid #111111">
+      {Object.entries(RANGES).map(([k, l]) => (
+        <a href={`/admin?range=${k}`} aria-current={range === k ? 'page' : undefined} style={`min-height:36px;padding:0 14px;display:inline-flex;align-items:center;font-size:13px;font-weight:600;text-decoration:none;${range === k ? 'background:#111111;color:#FFFFFF' : ''}`}>{l}</a>
+      ))}
+    </nav>
+  </div>
+
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px">
+    {kpis.map((k) => (
+      <div class="panel" style="padding:18px;display:flex;flex-direction:column;gap:8px">
+        <span style="font-size:12px;color:#5C5C5C;font-weight:600">{k.label}</span>
+        <span style="font-size:24px;font-weight:800">{k.value}</span>
+        <span style={`font-size:12px;font-weight:600;color:${k.d.color}`}>{k.d.text} <span style="color:#5C5C5C;font-weight:400">نسبت به دوره‌ی قبل</span></span>
+      </div>
+    ))}
+  </div>
+
+  <div style="display:flex;flex-wrap:wrap;gap:16px">
+    <section class="panel" style="flex:2 1 520px;min-width:0">
+      <div class="ph"><h2>فروش (تومان)</h2><span aria-live="polite" data-hover-label style="font-size:13px;color:#5C5C5C">جمع: {money(Number(kpi.sales))}</span></div>
+      <div style="padding:20px 20px 12px">
+        <div style="position:relative;height:220px">
+          {[0.5, 1].map((f) => (
+            <div style={`position:absolute;left:0;right:0;bottom:${f * 100}%;border-top:1px dashed #E5E5E3`}><span style="position:absolute;top:-9px;right:0;font-size:10px;color:#6B6B6B;background:#FFFFFF;padding-left:4px">{group(max * f / 1_000_000)} م</span></div>
+          ))}
+          <div class="bars" role="img" aria-label={`نمودار فروش ${RANGES[range]}`} style="position:absolute;inset:0 32px 0 0;display:flex;align-items:flex-end;gap:2px;border-bottom:1px solid #111111">
+            {series.map((x) => (
+              <button type="button" class="hit" data-label={`${label(x)} · ${money(Number(x.sales))}`} aria-label={`${label(x)}: ${money(Number(x.sales))}`}>
+                <span class="bar" style={`height:${Math.round((Number(x.sales) / max) * 100)}%;display:block;width:100%`}></span>
+              </button>
+            ))}
+          </div>
+        </div>
+        <div style="display:flex;justify-content:space-between;padding:8px 32px 0 0;font-size:11px;color:#6B6B6B">
+          <span>{series.length ? label(series[0]) : ''}</span><span>{series.length ? label(series[series.length - 1]) : ''}</span>
+        </div>
+      </div>
+    </section>
+    <section class="panel" style="flex:1 1 300px;min-width:0">
+      <div class="ph"><h2>پرفروش‌ترین محصولات</h2></div>
+      <div style="padding:16px 20px;display:flex;flex-direction:column;gap:14px">
+        {top.length === 0 && <p class="mute" style="margin:0;font-size:13px">در این بازه فروشی ثبت نشده است.</p>}
+        {top.map((t) => (
+          <div style="display:flex;flex-direction:column;gap:6px">
+            <div style="display:flex;justify-content:space-between;gap:10px;font-size:13px"><span class="en" style="font-weight:600">{t.name}</span><span>{fa(t.units)} عدد</span></div>
+            <div style="height:6px;background:#EFEFED;display:flex"><div style={`width:${Math.round((t.units / topMax) * 100)}%;background:#111111`}></div></div>
+          </div>
+        ))}
+      </div>
+    </section>
+  </div>
+
+  <div style="display:flex;flex-wrap:wrap;gap:16px">
+    <section class="panel" style="flex:1 1 380px;min-width:0">
+      <div class="ph"><h2>نیازمند اقدام</h2><a class="rowbtn" href="/admin/orders">همه‌ی سفارش‌ها</a></div>
+      <ul style="list-style:none;margin:0;padding:0">
+        {action.length === 0 && <li class="mute" style="padding:16px 20px;font-size:13px">سفارشی در انتظار نیست.</li>}
+        {action.map((o) => (
+          <li style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 20px;border-bottom:1px solid #EFEFED;font-size:13px">
+            <span style="display:flex;flex-direction:column;gap:2px"><span class="en" style="font-weight:700">{o.code}</span><span style="color:#5C5C5C">{o.first_name} {o.last_name} · {ADMIN_STATUS_LABELS[o.status]}</span></span>
+            <a class="btn btn-line btn-sm" href={`/admin/orders?open=${o.code}`}>بررسی</a>
+          </li>
+        ))}
+      </ul>
+    </section>
+    <section class="panel" style="flex:1 1 320px;min-width:0">
+      <div class="ph"><h2>هشدار موجودی</h2><a class="rowbtn" href="/admin/products?low=1">مدیریت موجودی</a></div>
+      <ul style="list-style:none;margin:0;padding:0">
+        {low.length === 0 && <li class="mute" style="padding:16px 20px;font-size:13px">موجودی همه‌ی محصولات کافی است.</li>}
+        {low.map((p) => (
+          <li style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 20px;border-bottom:1px solid #EFEFED;font-size:13px">
+            <a class="en" href={`/admin/products/${p.id}`} style="font-weight:600">{p.name} <span class="mute" style="font-weight:400">· {p.label}</span></a>
+            <span class="st s-canceled">{p.stock === 0 ? 'ناموجود' : `${fa(p.stock)} عدد`}</span>
+          </li>
+        ))}
+      </ul>
+    </section>
+    <section class="panel" style="flex:1 1 280px;min-width:0">
+      <div class="ph"><h2>مشاوره‌های امروز</h2><a class="rowbtn" href="/admin/consultations">برنامه</a></div>
+      <ul style="list-style:none;margin:0;padding:0">
+        {consults.length === 0 && <li class="mute" style="padding:16px 20px;font-size:13px">امروز مشاوره‌ای رزرو نشده است.</li>}
+        {consults.map((c) => (
+          <li style="display:flex;justify-content:space-between;gap:10px;padding:12px 20px;border-bottom:1px solid #EFEFED;font-size:13px">
+            <span style="font-weight:700">{jalaliDate(c.starts_at, { hour: '2-digit', minute: '2-digit' })}</span><span>{c.name} · {KIND[c.kind] ?? c.kind}</span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  </div>
+</AdminLayout>
+
+<script>
+  const out = document.querySelector<HTMLElement>('[data-hover-label]');
+  const initial = out?.textContent ?? '';
+  document.querySelectorAll<HTMLElement>('.hit').forEach((b) => {
+    const show = () => { if (out) out.textContent = b.dataset.label ?? ''; };
+    b.addEventListener('mouseenter', show);
+    b.addEventListener('focus', show);
+    b.addEventListener('mouseleave', () => { if (out) out.textContent = initial; });
+  });
+</script>

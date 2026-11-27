@@ -1,0 +1,85 @@
+---
+import '@fontsource-variable/vazirmatn';
+import '@fontsource/inter/latin-400.css';
+import '@fontsource/inter/latin-600.css';
+import '@fontsource/inter/latin-700.css';
+import '~/styles/global.css';
+import vazirArabic from '@fontsource-variable/vazirmatn/files/vazirmatn-arabic-wght-normal.woff2?url';
+import Header from '~/components/Header.astro';
+import Footer from '~/components/Footer.astro';
+import CartDrawer from '~/islands/CartDrawer';
+import { config } from '~/lib/config';
+
+interface Props {
+  title: string;
+  description?: string;
+  /** Path without query, e.g. "/shop/serums". Defaults to the current path. */
+  canonical?: string;
+  image?: string;
+  noindex?: boolean;
+  jsonLd?: object | object[];
+  active?: string;
+  ogType?: 'website' | 'product' | 'article';
+  /** Public pages can be cached by Nginx for everyone; personal pages must not be. */
+  cache?: number;
+  bare?: boolean;
+}
+const {
+  title, description = 'فرمول‌های بالینی با درصد دقیق ترکیبات روی برچسب. مراقبت پوست و آرایش پوست‌محور، بدون عطر و وگان.',
+  canonical = Astro.url.pathname, image = '/og.png', noindex = false, jsonLd, active, ogType = 'website', cache, bare = false,
+} = Astro.props;
+
+const site = config.siteUrl.replace(/\/$/, '');
+const canonicalUrl = site + canonical;
+const fullTitle = title.includes('LUMIÈRE') ? title : `${title} | LUMIÈRE`;
+const ld = jsonLd ? (Array.isArray(jsonLd) ? jsonLd : [jsonLd]) : [];
+
+if (cache) {
+  Astro.response.headers.set('cache-control', `public, max-age=0, s-maxage=${cache}, stale-while-revalidate=600`);
+  Astro.response.headers.set('x-accel-expires', String(cache)); // read by Nginx's proxy_cache
+}
+const path = Astro.url.pathname;
+---
+<!doctype html>
+<html lang="fa-IR" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{fullTitle}</title>
+  <meta name="description" content={description} />
+  <link rel="canonical" href={canonicalUrl} />
+  {noindex && <meta name="robots" content="noindex, follow" />}
+  <meta name="theme-color" content="#111111" />
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="preload" href={vazirArabic} as="font" type="font/woff2" crossorigin />
+  <meta property="og:site_name" content="LUMIÈRE" />
+  <meta property="og:locale" content="fa_IR" />
+  <meta property="og:type" content={ogType} />
+  <meta property="og:title" content={fullTitle} />
+  <meta property="og:description" content={description} />
+  <meta property="og:url" content={canonicalUrl} />
+  <meta property="og:image" content={image.startsWith('http') ? image : site + image} />
+  <meta name="twitter:card" content="summary_large_image" />
+  <slot name="head" />
+  {ld.map((x) => <script type="application/ld+json" set:html={JSON.stringify(x)} />)}
+</head>
+<body>
+  <a href="#main" class="sr-only" style="position:absolute">پرش به محتوای اصلی</a>
+  {!bare && <Header active={active} />}
+  <main id="main"><slot /></main>
+  {!bare && <Footer />}
+
+  {!bare && (
+    <nav class="mtab" aria-label="نوار پایین">
+      <a href="/" class:list={{ on: path === '/' }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11 12 4l9 7"></path><path d="M5 10v10h14V10"></path></svg>خانه</a>
+      <a href="/shop" class:list={{ on: path.startsWith('/shop') }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="7" height="7"></rect><rect x="13" y="4" width="7" height="7"></rect><rect x="4" y="13" width="7" height="7"></rect><rect x="13" y="13" width="7" height="7"></rect></svg>فروشگاه</a>
+      <a href="/quiz" class:list={{ on: path === '/quiz' }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 2v7.5L4.7 20.5a1 1 0 0 0 .9 1.5h12.8a1 1 0 0 0 .9-1.5L14 9.5V2"></path><path d="M8.5 2h7"></path></svg>تست پوست</a>
+      <a href="/cart" data-open-cart><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 7h14l-1 14H6L5 7Z"></path><path d="M9 10V6a3 3 0 0 1 6 0v4"></path></svg>سبد<span class="count" data-cart-count hidden style="top:8px;left:calc(50% - 20px)"></span></a>
+      <a href="/account" class:list={{ on: path.startsWith('/account') }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="8" r="4.5"></circle><path d="M20 21a8 8 0 0 0-16 0"></path></svg>حساب</a>
+    </nav>
+  )}
+
+  {!bare && <CartDrawer client:idle />}
+  <script src="../scripts/page.ts"></script>
+</body>
+</html>

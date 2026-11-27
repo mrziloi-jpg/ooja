@@ -1,0 +1,96 @@
+---
+import AdminLayout from '~/layouts/AdminLayout.astro';
+import { desc, eq } from 'drizzle-orm';
+import { db, sql, schema as s } from '~/db';
+import { isUniqueViolation, num, str } from '~/lib/admin';
+import { fa, jalaliDate, money } from '~/lib/format';
+
+let error: string | null = null;
+if (Astro.request.method === 'POST') {
+  const f = await Astro.request.formData();
+  if (f.get('action') === 'toggle') {
+    await db.update(s.discountCodes).set({ active: f.get('active') === 'on' }).where(eq(s.discountCodes.id, Number(f.get('id'))));
+    return Astro.redirect('/admin/discounts', 303);
+  }
+  const code = str(f.get('code')).toUpperCase().replace(/\s+/g, '');
+  const type = str(f.get('type'));
+  const value = num(f.get('value'));
+  const days = num(f.get('days'));
+  if (!/^[A-Z0-9_-]{3,30}$/.test(code)) error = 'کد باید ۳ تا ۳۰ حرف لاتین یا عدد باشد.';
+  else if (!value || value <= 0 || (type === 'pct' && value > 100)) error = 'مقدار تخفیف معتبر نیست (درصد بین ۱ تا ۱۰۰).';
+  else {
+    try {
+      await db.insert(s.discountCodes).values({
+        code, percent: type === 'pct' ? Math.round(value) : null, amount: type === 'amt' ? Math.round(value) : null,
+        minSubtotal: num(f.get('min')) ?? 0, maxUses: num(f.get('limit')) || null, source: str(f.get('source')) || null,
+        expiresAt: days ? new Date(Date.now() + days * 86400_000) : null,
+      });
+      return Astro.redirect(`/admin/discounts?ok=${encodeURIComponent(`کد ${code} ساخته شد.`)}`, 303);
+    } catch (e: any) {
+      error = isUniqueViolation(e) ? 'این کد قبلاً ساخته شده است.' : 'ساخت کد انجام نشد.';
+      if (!isUniqueViolation(e)) console.error('[admin] create discount failed', e);
+    }
+  }
+}
+
+const codes = await db.select().from(s.discountCodes).orderBy(desc(s.discountCodes.id));
+// Revenue attributed to each code (counted orders only), useful for influencer payouts.
+const revenue = Object.fromEntries((await sql<{ code: string; n: number; total: number }[]>`
+  SELECT discount_code AS code, count(*)::int AS n, sum(total)::bigint AS total FROM orders
+  WHERE discount_code IS NOT NULL AND status NOT IN ('awaiting_payment', 'canceled') GROUP BY discount_code`).map((r) => [r.code, r]));
+const now = new Date();
+---
+<AdminLayout title="کدهای تخفیف" section="discounts">
+  {error && <p class="flash err" role="alert">{error}</p>}
+  <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start">
+    <section class="panel" style="flex:999 1 520px;min-width:0">
+      <div class="ph"><h2>کدهای تخفیف</h2></div>
+      <div class="scroll-x">
+        <table class="tbl">
+          <thead><tr><th scope="col">کد</th><th scope="col">مقدار</th><th scope="col">حداقل خرید</th><th scope="col">استفاده</th><th scope="col">فروش با این کد</th><th scope="col">انقضا</th><th scope="col">فعال</th></tr></thead>
+          <tbody>
+            {codes.map((d) => {
+              const r = revenue[d.code];
+              const expired = d.expiresAt && d.expiresAt < now;
+              return (
+                <tr>
+                  <td><span class="en" style="font-weight:700">{d.code}</span>{d.source && <span class="mute" style="display:block;font-size:12px">{d.source}</span>}</td>
+                  <td>{d.percent ? `${fa(d.percent)}٪` : money(d.amount ?? 0)}</td>
+                  <td style="white-space:nowrap">{d.minSubtotal ? money(d.minSubtotal) : '—'}</td>
+                  <td style="min-width:140px">
+                    <span style="display:flex;flex-direction:column;gap:4px">
+                      <span>{fa(d.used)}{d.maxUses ? ` از ${fa(d.maxUses)}` : ''}</span>
+                      {d.maxUses && <span style="height:4px;background:#EFEFED;display:flex"><span style={`width:${Math.min(100, Math.round((d.used / d.maxUses) * 100))}%;background:#111111`}></span></span>}
+                    </span>
+                  </td>
+                  <td style="white-space:nowrap">{r ? <>{money(Number(r.total))} <span class="mute">({fa(r.n)})</span></> : '—'}</td>
+                  <td style={expired ? 'color:#A3261B' : ''}>{d.expiresAt ? jalaliDate(d.expiresAt) : 'بدون انقضا'}</td>
+                  <td>
+                    <form method="post"><input type="hidden" name="action" value="toggle" /><input type="hidden" name="id" value={d.id} />
+                      <input type="checkbox" class="switch" role="switch" name="active" checked={d.active} aria-label={`فعال بودن کد ${d.code}`} data-autosubmit />
+                    </form>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      {codes.length === 0 && <p style="margin:0;padding:32px;text-align:center;font-size:14px;color:#5C5C5C">هنوز کدی ساخته نشده است.</p>}
+    </section>
+
+    <form class="panel" method="post" style="flex:1 1 320px;max-width:420px">
+      <div class="ph"><h2>ساخت کد جدید</h2></div>
+      <div class="pb grid2">
+        <label class="field full">کد<input class="input en" name="code" required placeholder="YALDA25" style="text-align:left;text-transform:uppercase" /></label>
+        <label class="field">نوع<select class="input" name="type"><option value="pct">درصدی</option><option value="amt">مبلغ ثابت (تومان)</option></select></label>
+        <label class="field">مقدار<input class="input en" name="value" inputmode="numeric" required style="text-align:left" /></label>
+        <label class="field">حداقل خرید (تومان)<input class="input en" name="min" inputmode="numeric" style="text-align:left" /></label>
+        <label class="field">سقف استفاده<input class="input en" name="limit" inputmode="numeric" style="text-align:left" placeholder="نامحدود" /></label>
+        <label class="field">اعتبار (روز)<input class="input en" name="days" inputmode="numeric" style="text-align:left" placeholder="بدون انقضا" /></label>
+        <label class="field">منبع / اینفلوئنسر<input class="input" name="source" placeholder="مثلاً پیج سارا" /></label>
+        <div class="full"><button class="btn btn-dark">ساخت کد</button></div>
+      </div>
+    </form>
+  </div>
+</AdminLayout>

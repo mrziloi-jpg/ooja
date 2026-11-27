@@ -1,0 +1,71 @@
+---
+import AdminLayout from '~/layouts/AdminLayout.astro';
+import { eq } from 'drizzle-orm';
+import { db, sql, schema as s } from '~/db';
+import { invalidateCatalog } from '~/lib/catalog';
+import { fa, money } from '~/lib/format';
+import { getSettings } from '~/lib/settings';
+
+if (Astro.request.method === 'POST') {
+  const f = await Astro.request.formData();
+  const id = Number(f.get('id'));
+  await db.update(s.products).set({ active: f.get('active') === 'on', updatedAt: new Date() }).where(eq(s.products.id, id));
+  invalidateCatalog();
+  return Astro.redirect(Astro.url.pathname + Astro.url.search, 303);
+}
+
+const q = (Astro.url.searchParams.get('q') ?? '').trim().toLowerCase();
+const onlyLow = Astro.url.searchParams.get('low') === '1';
+const { lowStock } = await getSettings();
+
+// Admin sees inactive products too, so this reads the DB directly rather than the storefront catalog cache.
+const rows = await sql<{ id: number; slug: string; name_en: string; name_fa: string; cat: string; active: boolean; image: string | null; min_price: number; stock: number; low_variants: number; sold: number }[]>`
+  SELECT p.id, p.slug, p.name_en, p.name_fa, c.name AS cat, p.active, p.image,
+    min(v.price)::bigint AS min_price, coalesce(sum(v.stock), 0)::int AS stock,
+    count(*) FILTER (WHERE v.stock < ${lowStock})::int AS low_variants,
+    coalesce((SELECT sum(oi.qty) FROM order_items oi JOIN orders o ON o.id = oi.order_id
+      WHERE oi.product_id = p.id AND o.status NOT IN ('awaiting_payment', 'canceled') AND o.created_at > now() - interval '30 days'), 0)::int AS sold
+  FROM products p JOIN categories c ON c.id = p.category_id LEFT JOIN variants v ON v.product_id = p.id
+  GROUP BY p.id, c.name, c.sort ORDER BY c.sort, p.sort, p.id`;
+const list = rows.filter((p) => (!onlyLow || p.low_variants > 0) && (!q || `${p.name_en} ${p.name_fa}`.toLowerCase().includes(q)));
+---
+<AdminLayout title="محصولات و موجودی" section="products" searchAction="/admin/products">
+  <section class="panel">
+    <form method="get" style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:14px 20px;border-bottom:1px solid #EFEFED">
+      <label class="sr-only" for="pq">جستجو در محصولات</label>
+      <input id="pq" class="input" type="search" name="q" placeholder="نام محصول" value={q} style="flex:1 1 200px" />
+      <label class="cbx"><input type="checkbox" name="low" value="1" checked={onlyLow} data-autosubmit />فقط موجودی کم</label>
+      <button class="btn btn-line btn-sm">جستجو</button>
+      <a class="btn btn-dark" href="/admin/products/new">+ محصول جدید</a>
+    </form>
+    <div class="scroll-x">
+      <table class="tbl">
+        <thead><tr><th scope="col">محصول</th><th scope="col">دسته</th><th scope="col">قیمت پایه</th><th scope="col">موجودی</th><th scope="col">فروش ۳۰ روز</th><th scope="col">فعال</th><th scope="col"></th></tr></thead>
+        <tbody>
+          {list.map((p) => (
+            <tr>
+              <td>
+                <span style="display:flex;gap:10px;align-items:center">
+                  {p.image ? <img src={`${p.image}-480.webp`} alt="" width="36" height="45" style="object-fit:cover;background:#F4F4F2" loading="lazy" /> : <span aria-hidden="true" style="width:36px;height:45px;background:#F4F4F2;display:inline-block"></span>}
+                  <span style="display:flex;flex-direction:column;gap:2px"><a class="en" href={`/admin/products/${p.id}`} style="font-weight:700">{p.name_en}</a><span style="color:#5C5C5C;font-size:12px">{p.name_fa}</span></span>
+                </span>
+              </td>
+              <td>{p.cat}</td>
+              <td style="white-space:nowrap">{p.min_price ? money(Number(p.min_price)) : '—'}</td>
+              <td><span style="font-weight:700">{fa(p.stock)}</span> {p.low_variants > 0 && <span class="st s-canceled">{p.stock === 0 ? 'ناموجود' : 'کم'}</span>}</td>
+              <td>{fa(p.sold)}</td>
+              <td>
+                <form method="post">
+                  <input type="hidden" name="id" value={p.id} />
+                  <input type="checkbox" class="switch" role="switch" name="active" checked={p.active} aria-label={`فعال بودن ${p.name_fa}`} data-autosubmit />
+                </form>
+              </td>
+              <td style="white-space:nowrap"><a class="rowbtn" href={`/admin/products/${p.id}`}>ویرایش</a> · <a class="rowbtn" href={`/p/${p.slug}`} target="_blank">مشاهده</a></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+    {list.length === 0 && <p style="margin:0;padding:32px;text-align:center;font-size:14px;color:#5C5C5C">محصولی پیدا نشد.</p>}
+  </section>
+</AdminLayout>

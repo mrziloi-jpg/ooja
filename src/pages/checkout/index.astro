@@ -1,0 +1,37 @@
+---
+import Layout from '~/layouts/Layout.astro';
+import Checkout from '~/islands/Checkout';
+import { desc, eq } from 'drizzle-orm';
+import { db, schema as s } from '~/db';
+import { getCartId, readCart } from '~/lib/cart';
+import { getStore } from '~/lib/settings';
+
+const cart = await readCart(getCartId(Astro.cookies));
+if (!cart.count) return Astro.redirect('/cart');
+
+const store = await getStore();
+const u = Astro.locals.user;
+const [address] = u ? await db.select().from(s.addresses).where(eq(s.addresses.userId, u.id)).orderBy(desc(s.addresses.isDefault), desc(s.addresses.id)).limit(1) : [];
+---
+<Layout title="تسویه حساب" noindex>
+  <div class="wrap" style="padding-top:32px;padding-bottom:96px">
+    <h1 style="margin:0 0 24px;font-size:clamp(26px,3vw,36px);font-weight:800">تسویه حساب</h1>
+    <Checkout
+      client:load
+      cart={cart}
+      user={u ? { phone: u.phone, email: u.email, firstName: u.firstName, lastName: u.lastName, credit: u.credit, smsOptIn: u.smsOptIn } : null}
+      address={address ?? null}
+      provinces={store.provinces}
+      shipping={store.shipping}
+      payments={store.payments}
+      freeShipFrom={store.freeShipFrom}
+    />
+  </div>
+</Layout>
+
+<style is:global>
+  .opt { display: flex; align-items: center; gap: 14px; padding: 16px 18px; border: 1px solid #D6D6D4; background: #FFFFFF; cursor: pointer; }
+  .opt:has(input:checked) { border-color: #111111; box-shadow: inset 0 0 0 1px #111111; }
+  .opt[aria-disabled=true] { opacity: .5; cursor: not-allowed; }
+  .opt input { width: 18px; height: 18px; accent-color: #111111; margin: 0; }
+</style>

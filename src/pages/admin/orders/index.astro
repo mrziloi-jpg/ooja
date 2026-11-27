@@ -1,0 +1,197 @@
+---
+import AdminLayout from '~/layouts/AdminLayout.astro';
+import { and, asc, count, desc, eq, ilike, or, type SQL } from 'drizzle-orm';
+import { db, schema as s } from '~/db';
+import { ADMIN_STATUS_LABELS, ORDER_STATUSES, PAY_LABELS, SHIP_LABELS, str, updateOrder, type OrderStatus } from '~/lib/admin';
+import { fa, jalaliDate, money, normalizePhone, toEn } from '~/lib/format';
+
+const PAGE = 50;
+const url = Astro.url;
+const user = Astro.locals.user!;
+
+if (Astro.request.method === 'POST') {
+  const f = await Astro.request.formData();
+  const back = new URL(url);
+  back.searchParams.delete('ok'); back.searchParams.delete('err');
+  try {
+    if (f.get('action') === 'bulk_ship') {
+      const ids = f.getAll('ids').map(Number).filter(Boolean);
+      let n = 0;
+      for (const id of ids) {
+        const [o] = await db.select({ status: s.orders.status }).from(s.orders).where(eq(s.orders.id, id));
+        if (o && (o.status === 'pending' || o.status === 'ready')) { await updateOrder(id, { status: 'shipped' }, user.id, true); n++; }
+      }
+      back.searchParams.set('ok', `${fa(n)} سفارش «ارسال شده» شد و به مشتریان پیامک رفت.`);
+    } else {
+      const id = Number(f.get('id'));
+      const status = str(f.get('status')) as OrderStatus;
+      if (!ORDER_STATUSES.includes(status)) throw new Error('وضعیت نامعتبر است.');
+      await updateOrder(id, { status, trackingCode: toEn(str(f.get('trackingCode'))), internalNote: str(f.get('internalNote')) }, user.id, f.get('sms') === 'on');
+      back.searchParams.set('ok', 'سفارش ذخیره شد.');
+    }
+  } catch (e) {
+    back.searchParams.set('err', (e as Error).message);
+  }
+  return Astro.redirect(back.pathname + back.search, 303);
+}
+
+const status = url.searchParams.get('status') ?? 'all';
+const q = (url.searchParams.get('q') ?? '').trim();
+const page = Math.max(1, Number(url.searchParams.get('page') ?? 1));
+const openCode = url.searchParams.get('open');
+
+const where: SQL[] = [];
+if (status !== 'all') where.push(eq(s.orders.status, status as any));
+if (q) {
+  const phone = normalizePhone(q);
+  const like = `%${toEn(q)}%`;
+  where.push(or(ilike(s.orders.code, like), ilike(s.orders.firstName, `%${q}%`), ilike(s.orders.lastName, `%${q}%`), phone ? eq(s.orders.phone, phone) : ilike(s.orders.phone, like))!);
+}
+const cond = where.length ? and(...where) : undefined;
+
+const [rows, [{ total }], tabCounts] = await Promise.all([
+  db.select().from(s.orders).where(cond).orderBy(desc(s.orders.createdAt)).limit(PAGE).offset((page - 1) * PAGE),
+  db.select({ total: count() }).from(s.orders).where(cond),
+  db.select({ status: s.orders.status, n: count() }).from(s.orders).groupBy(s.orders.status),
+]);
+const countOf = (k: string) => k === 'all' ? tabCounts.reduce((n, t) => n + t.n, 0) : tabCounts.find((t) => t.status === k)?.n ?? 0;
+const tabs = ['all', 'awaiting_payment', ...ORDER_STATUSES];
+
+let od: (typeof s.orders.$inferSelect) | undefined;
+let items: (typeof s.orderItems.$inferSelect)[] = [];
+let events: { status: string; createdAt: Date; by: string | null }[] = [];
+if (openCode) {
+  [od] = await db.select().from(s.orders).where(eq(s.orders.code, openCode)).limit(1);
+  if (od) {
+    [items, events] = await Promise.all([
+      db.select().from(s.orderItems).where(eq(s.orderItems.orderId, od.id)),
+      db.select({ status: s.orderEvents.status, createdAt: s.orderEvents.createdAt, by: s.users.firstName })
+        .from(s.orderEvents).leftJoin(s.users, eq(s.users.id, s.orderEvents.byUserId))
+        .where(eq(s.orderEvents.orderId, od.id)).orderBy(asc(s.orderEvents.createdAt)),
+    ]);
+  }
+}
+const link = (patch: Record<string, string | null>) => {
+  const u = new URL(url);
+  u.searchParams.delete('ok'); u.searchParams.delete('err');
+  for (const [k, v] of Object.entries(patch)) v === null ? u.searchParams.delete(k) : u.searchParams.set(k, v);
+  return u.pathname + u.search;
+};
+const pages = Math.ceil(total / PAGE);
+const utm = od?.utm as Record<string, string> | null;
+---
+<AdminLayout title="سفارش‌ها" section="orders">
+  <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start">
+    <section class="panel" style="flex:999 1 560px;min-width:0">
+      <nav class="tabs" aria-label="وضعیت سفارش">
+        {tabs.map((t) => (
+          <a class="tab" href={link({ status: t === 'all' ? null : t, page: null, open: null })} aria-current={status === t ? 'page' : undefined}>
+            {t === 'all' ? 'همه' : ADMIN_STATUS_LABELS[t]} ({fa(countOf(t))})
+          </a>
+        ))}
+      </nav>
+      <form method="get" style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:14px 20px;border-bottom:1px solid #EFEFED">
+        {status !== 'all' && <input type="hidden" name="status" value={status} />}
+        <label class="sr-only" for="oq">جستجو در سفارش‌ها</label>
+        <input id="oq" class="input" type="search" name="q" placeholder="شماره سفارش، نام یا موبایل مشتری" value={q} style="flex:1 1 220px" />
+        <button class="btn btn-line btn-sm">جستجو</button>
+      </form>
+
+      <form method="post" id="bulk">
+        <input type="hidden" name="action" value="bulk_ship" />
+        <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:10px 20px;border-bottom:1px solid #EFEFED;font-size:13px">
+          <span class="mute">موارد انتخاب‌شده:</span>
+          <button class="btn btn-dark btn-sm" data-confirm="سفارش‌های انتخاب‌شده «ارسال شده» شوند و به مشتریان پیامک برود؟">علامت: ارسال شده</button>
+          <button class="btn btn-line btn-sm" type="submit" formmethod="get" formaction="/admin/orders/labels" formtarget="_blank">چاپ برچسب‌ها</button>
+        </div>
+        <div class="scroll-x">
+          <table class="tbl">
+            <thead><tr><th scope="col" style="width:36px"><span class="sr-only">انتخاب</span></th><th scope="col">سفارش</th><th scope="col">مشتری</th><th scope="col">شهر</th><th scope="col">تاریخ</th><th scope="col">مبلغ</th><th scope="col">ارسال</th><th scope="col">وضعیت</th></tr></thead>
+            <tbody>
+              {rows.map((o) => (
+                <tr class:list={{ sel: o.code === openCode }}>
+                  <td><input type="checkbox" name="ids" value={o.id} aria-label={`انتخاب سفارش ${o.code}`} style="width:16px;height:16px;accent-color:#111111" /></td>
+                  <td><a class="rowbtn en" href={link({ open: o.code })}>{o.code}</a></td>
+                  <td>{o.firstName} {o.lastName}</td>
+                  <td>{o.city}</td>
+                  <td style="white-space:nowrap">{jalaliDate(o.createdAt, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</td>
+                  <td style="font-weight:600;white-space:nowrap">{money(o.total)}</td>
+                  <td>{SHIP_LABELS[o.shipMethod] ?? o.shipMethod}</td>
+                  <td><span class={`st s-${o.status}`}>{ADMIN_STATUS_LABELS[o.status]}</span></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </form>
+      {rows.length === 0 && <p style="margin:0;padding:32px;text-align:center;font-size:14px;color:#5C5C5C">سفارشی با این شرایط نیست.</p>}
+      {pages > 1 && (
+        <nav aria-label="صفحه‌بندی" style="display:flex;gap:8px;justify-content:center;padding:14px">
+          {page > 1 && <a class="btn btn-line btn-sm" href={link({ page: String(page - 1) })}>قبلی</a>}
+          <span style="align-self:center;font-size:13px">صفحه‌ی {fa(page)} از {fa(pages)}</span>
+          {page < pages && <a class="btn btn-line btn-sm" href={link({ page: String(page + 1) })}>بعدی</a>}
+        </nav>
+      )}
+    </section>
+
+    {od && (
+      <aside class="panel" aria-label="جزئیات سفارش" style="flex:1 1 340px;max-width:440px;position:sticky;top:84px">
+        <div class="ph"><h2 class="en">{od.code}</h2><a href={link({ open: null })} aria-label="بستن جزئیات" style="width:36px;height:36px;display:inline-flex;align-items:center;justify-content:center">✕</a></div>
+        <div style="padding:16px 20px;display:flex;flex-direction:column;gap:14px;font-size:13px">
+          <div style="display:flex;flex-direction:column;gap:4px">
+            <span style="font-weight:700;font-size:14px">{od.firstName} {od.lastName}</span>
+            <a class="en r" href={`tel:${od.phone}`} style="color:#5C5C5C">{od.phone}</a>
+            {od.email && <span class="en r mute">{od.email}</span>}
+            <span style="line-height:1.8">{od.province}، {od.city}، {od.address}</span>
+            <span class="mute">کد پستی: <span class="en">{od.postal}</span>{od.landline && <> · تلفن: <span class="en">{od.landline}</span></>}</span>
+          </div>
+          <div style="border-top:1px solid #EFEFED;padding-top:12px;display:flex;flex-direction:column;gap:8px">
+            {items.map((it) => (
+              <div style="display:flex;justify-content:space-between;gap:10px"><span><span class="en">{it.nameEn}</span> <span class="mute">· {it.label}</span></span><span style="white-space:nowrap">×{fa(it.qty)}</span></div>
+            ))}
+            {od.samples.length > 0 && <span class="mute">نمونه‌ها: <span class="en">{od.samples.join('، ')}</span></span>}
+            <dl style="margin:0;display:flex;flex-direction:column;gap:4px;border-top:1px solid #EFEFED;padding-top:8px">
+              <div style="display:flex;justify-content:space-between"><dt>جمع کالاها</dt><dd style="margin:0">{money(od.subtotal)}</dd></div>
+              {od.discount > 0 && <div style="display:flex;justify-content:space-between"><dt>تخفیف <span class="en">{od.discountCode}</span></dt><dd style="margin:0">− {money(od.discount)}</dd></div>}
+              <div style="display:flex;justify-content:space-between"><dt>ارسال</dt><dd style="margin:0">{od.shipCost ? money(od.shipCost) : 'رایگان'}</dd></div>
+              {od.creditUsed > 0 && <div style="display:flex;justify-content:space-between"><dt>اعتبار باشگاه</dt><dd style="margin:0">− {money(od.creditUsed)}</dd></div>}
+            </dl>
+            <div style="display:flex;justify-content:space-between;font-weight:800;border-top:1px solid #111111;padding-top:8px"><span>جمع</span><span>{money(od.total)}</span></div>
+            <span class="mute">پرداخت: {PAY_LABELS[od.payMethod] ?? od.payMethod}{od.gatewayRef && <> · کد پیگیری: <span class="en">{od.gatewayRef}</span></>} · ارسال: {SHIP_LABELS[od.shipMethod]}</span>
+            {utm && (utm.utm_source || utm.ref) && <span class="mute">منبع: <span class="en">{[utm.utm_source, utm.utm_campaign, utm.ref].filter(Boolean).join(' / ')}</span></span>}
+          </div>
+
+          {od.status === 'awaiting_payment' ? (
+            <p class="mute" style="margin:0">این سفارش هنوز پرداخت نشده است و پس از ۳۰ دقیقه خودکار لغو می‌شود.</p>
+          ) : (
+            <form method="post" style="display:flex;flex-direction:column;gap:12px">
+              <input type="hidden" name="id" value={od.id} />
+              <label class="field">وضعیت
+                <select class="input" name="status">
+                  {ORDER_STATUSES.map((k) => <option value={k} selected={od!.status === k}>{ADMIN_STATUS_LABELS[k]}</option>)}
+                </select>
+              </label>
+              <label class="field">کد رهگیری<input class="input en" name="trackingCode" value={od.trackingCode ?? ''} style="text-align:left" /></label>
+              <label class="field">یادداشت داخلی<textarea class="input" name="internalNote" rows="2" placeholder="فقط برای تیم قابل مشاهده است">{od.internalNote ?? ''}</textarea></label>
+              <label class="cbx"><input type="checkbox" name="sms" checked />در صورت تغییر وضعیت، به مشتری پیامک شود</label>
+              <p class="mute" style="margin:0;font-size:12px;line-height:1.8">لغو سفارشِ ارسال‌نشده، موجودی را برمی‌گرداند. بازگرداندن وجه پرداخت اینترنتی را از پنل زرین‌پال انجام دهید.</p>
+              <div style="display:flex;flex-wrap:wrap;gap:8px">
+                <button class="btn btn-dark">ذخیره</button>
+                <a class="btn btn-line" href={`/admin/orders/labels?ids=${od.id}`} target="_blank">چاپ برچسب</a>
+              </div>
+            </form>
+          )}
+
+          {events.length > 0 && (
+            <div style="border-top:1px solid #EFEFED;padding-top:12px">
+              <p style="margin:0 0 6px;font-weight:700">تاریخچه</p>
+              <ol style="margin:0;padding:0 16px 0 0;display:flex;flex-direction:column;gap:4px">
+                {events.map((e) => <li>{ADMIN_STATUS_LABELS[e.status] ?? e.status} · {jalaliDate(e.createdAt, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}{e.by && <span class="mute"> · {e.by}</span>}</li>)}
+              </ol>
+            </div>
+          )}
+        </div>
+      </aside>
+    )}
+  </div>
+</AdminLayout>

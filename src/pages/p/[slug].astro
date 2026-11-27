@@ -1,0 +1,422 @@
+---
+import Layout from '~/layouts/Layout.astro';
+import ProductArt from '~/components/ProductArt.astro';
+import ProductCard from '~/components/ProductCard.astro';
+import Stars from '~/components/Stars.astro';
+import { getCatalog } from '~/lib/catalog';
+import { BADGES, fa, group, jalaliDate, money, rating as fmtRating } from '~/lib/format';
+import { config } from '~/lib/config';
+import { getStore } from '~/lib/settings';
+import { db, schema as s } from '~/db';
+import { and, desc, eq } from 'drizzle-orm';
+
+const cat = await getCatalog();
+const p = cat.bySlug.get(Astro.params.slug!);
+if (!p) return new Response(null, { status: 404 });
+
+const d = p.details;
+const store = await getStore();
+const first = p.variants.find((v) => v.stock > 0) ?? p.variants[0];
+const badge = p.badge ? BADGES[p.badge] : null;
+const reviews = await db.select().from(s.reviews)
+  .where(and(eq(s.reviews.productId, p.id), eq(s.reviews.approved, true)))
+  .orderBy(desc(s.reviews.createdAt)).limit(50);
+const dist = [5, 4, 3, 2, 1].map((n) => {
+  const pct = reviews.length ? Math.round((reviews.filter((r) => r.rating === n).length / reviews.length) * 100) : 0;
+  return { n, pct };
+});
+const ingredients = p.ingredients.map((slug) => cat.ingredients.find((i) => i.slug === slug)).filter(Boolean);
+
+// "Complete the routine": one product from each other routine step, preferring the same concerns.
+const steps = ['cleansers', 'serums', 'moisturizers', 'spf'].filter((c) => c !== p.category);
+const bundle = steps.map((c) => cat.products
+  .filter((x) => x.category === c && x.inStock)
+  .sort((a, b) => b.concerns.filter((k) => p.concerns.includes(k)).length - a.concerns.filter((k) => p.concerns.includes(k)).length || b.salesScore - a.salesScore)[0])
+  .filter(Boolean).slice(0, 3);
+const related = cat.products
+  .filter((x) => x.id !== p.id && x.concerns.some((k) => p.concerns.includes(k)))
+  .sort((a, b) => b.salesScore - a.salesScore).slice(0, 4);
+
+const site = config.siteUrl.replace(/\/$/, '');
+const url = `${site}/p/${p.slug}`;
+const description = p.description ?? p.tagline ?? p.nameFa;
+const jsonLd: object[] = [
+  {
+    '@context': 'https://schema.org', '@type': 'Product',
+    name: p.nameEn, alternateName: p.nameFa, description, sku: String(p.id),
+    brand: { '@type': 'Brand', name: 'LUMIÈRE' }, category: p.categoryName, url,
+    image: p.image ? [`${site}${p.image}-960.webp`] : [`${site}/og.png`],
+    // Schema.org requires ISO 4217; Iranian rial is IRR, and store prices are toman (x10).
+    offers: p.variants.map((v) => ({
+      '@type': 'Offer', name: v.label, price: v.price * 10, priceCurrency: 'IRR', url,
+      availability: v.stock > 0 ? 'https://schema.org/InStock' : 'https://schema.org/OutOfStock',
+      itemCondition: 'https://schema.org/NewCondition',
+    })),
+    ...(reviews.length ? {
+      aggregateRating: { '@type': 'AggregateRating', ratingValue: (reviews.reduce((n, r) => n + r.rating, 0) / reviews.length).toFixed(1), reviewCount: reviews.length },
+      review: reviews.slice(0, 5).map((r) => ({ '@type': 'Review', author: { '@type': 'Person', name: r.name }, reviewRating: { '@type': 'Rating', ratingValue: r.rating }, reviewBody: r.body, datePublished: r.createdAt.toISOString().slice(0, 10) })),
+    } : {}),
+  },
+  {
+    '@context': 'https://schema.org', '@type': 'BreadcrumbList',
+    itemListElement: [
+      { '@type': 'ListItem', position: 1, name: 'خانه', item: site + '/' },
+      { '@type': 'ListItem', position: 2, name: p.categoryName, item: `${site}/shop/${p.category}` },
+      { '@type': 'ListItem', position: 3, name: p.nameEn, item: url },
+    ],
+  },
+];
+if (d.faqs?.length) {
+  jsonLd.push({ '@context': 'https://schema.org', '@type': 'FAQPage', mainEntity: d.faqs.map((f) => ({ '@type': 'Question', name: f.q, acceptedAnswer: { '@type': 'Answer', text: f.a } })) });
+}
+
+const tabs = [
+  { id: 'what', label: 'معرفی', show: true },
+  { id: 'how', label: 'نحوه‌ی مصرف', show: !!d.steps?.length },
+  { id: 'ingr', label: 'ترکیبات کامل', show: !!p.inci || ingredients.length > 0 },
+  { id: 'compat', label: 'سازگاری', show: !!(d.compatGood || d.compatAvoid) },
+  { id: 'faq', label: 'سؤالات متداول', show: !!d.faqs?.length },
+].filter((t) => t.show);
+const bundleIds = bundle.map((b) => b.variants.find((v) => v.stock > 0)!.id);
+---
+<Layout title={`${p.nameEn} — ${p.nameFa}`} description={`${p.nameFa}: ${description}`.slice(0, 160)} canonical={`/p/${p.slug}`} jsonLd={jsonLd} ogType="product" image={p.image ? `${p.image}-960.webp` : undefined} active="shop" cache={60}>
+  <Fragment slot="head">
+    <meta property="product:price:amount" content={String(first.price * 10)} />
+    <meta property="product:price:currency" content="IRR" />
+    <!-- Torob / Emalls read these to list the product in price comparison. -->
+    <meta name="product_id" content={String(p.id)} />
+    <meta name="product_name" content={p.nameFa} />
+    <meta name="product_price" content={String(first.price)} />
+    <meta name="product_old_price" content={String(first.compareAt ?? first.price)} />
+    <meta name="availability" content={p.inStock ? 'instock' : 'outofstock'} />
+  </Fragment>
+
+  <div class="wrap" style="padding-top:20px">
+    <nav aria-label="مسیر" style="font-size:13px;color:#5C5C5C;display:flex;flex-wrap:wrap;gap:8px;margin-bottom:20px">
+      <a href="/" style="color:#5C5C5C">خانه</a><span aria-hidden="true">/</span>
+      <a href={`/shop/${p.category}`} style="color:#5C5C5C">{p.categoryName}</a><span aria-hidden="true">/</span>
+      <span class="en" style="color:#111111">{p.nameEn}</span>
+    </nav>
+  </div>
+
+  <section class="wrap" style="display:flex;flex-wrap:wrap;gap:clamp(24px,4vw,64px);padding-bottom:72px;align-items:flex-start" data-product={p.id}>
+    <div class="stage pstage" style="flex:1 1 520px;min-height:620px;background:radial-gradient(ellipse at 50% 42%,#FFFFFF 0%,#F4F4F2 55%,#EBEBE8 100%)">
+      {!p.image && <div aria-hidden="true" style="position:absolute;left:50%;top:46%;width:520px;height:520px;transform:translate(-50%,-50%);border-radius:50%;background:radial-gradient(circle,rgba(255,255,255,1) 0%,rgba(255,255,255,.8) 35%,rgba(255,255,255,0) 68%)"></div>}
+      {!p.image && <div aria-hidden="true" style="position:absolute;left:50%;bottom:13%;width:300px;height:26px;transform:translateX(-50%);border-radius:50%;background:radial-gradient(ellipse,rgba(0,0,0,.22) 0%,rgba(0,0,0,0) 70%)"></div>}
+      {p.image
+        ? <ProductArt shape={p.shape} glass={p.glass} nameEn={p.nameEn} image={p.image} eager />
+        : <div class="hero-bottle" style="position:absolute;left:50%;bottom:15%;transform:translateX(-50%) scale(2.3);transform-origin:bottom center"><ProductArt shape={p.shape} glass={p.glass} nameEn={p.nameEn} /></div>}
+      {badge && <span style="position:absolute;top:16px;inset-inline-start:16px;font-size:11px;font-weight:600;padding:4px 9px;background:#111111;color:#FFFFFF">{badge[0]}</span>}
+    </div>
+
+    <div style="flex:1 1 420px;min-width:0;max-width:560px;display:flex;flex-direction:column;gap:18px">
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <p class="kicker">{d.kicker ?? p.categoryName}</p>
+        <h1 class="en r" style="margin:0;font-size:clamp(30px,3vw,42px);font-weight:700;line-height:1.2">{p.nameEn}</h1>
+        <p style="margin:0;font-size:18px;font-weight:500">{p.nameFa}</p>
+        {reviews.length > 0 && (
+          <a href="#reviews" style="display:inline-flex;align-items:center;gap:8px;font-size:13px;color:#3A3A3A;align-self:flex-start">
+            <Stars value={p.rating} /> {fmtRating(p.rating)} از ۵ · {group(reviews.length)} نظر
+          </a>
+        )}
+      </div>
+      <p style="margin:0;font-size:15px;line-height:2;color:#3A3A3A">{description}</p>
+
+      {!!d.skinTags?.length && (
+        <div style="display:flex;flex-wrap:wrap;gap:8px">
+          {d.skinTags.map((t) => <span style="font-size:12px;border:1px solid #111111;padding:4px 10px">{t}</span>)}
+        </div>
+      )}
+
+      {p.variants.length > 1 && (
+        <div style="border-top:1px solid #E5E5E3;padding-top:18px;display:flex;flex-direction:column;gap:12px">
+          <p id="size-l" style="margin:0;font-size:14px;font-weight:700">حجم</p>
+          <div role="group" aria-labelledby="size-l" style="display:flex;gap:8px">
+            {p.variants.map((v) => <button type="button" class="size" style="min-height:44px;padding:0 16px" data-size={v.id} data-price={v.price} aria-pressed={v.id === first.id} disabled={v.stock <= 0}>{v.label}</button>)}
+          </div>
+        </div>
+      )}
+
+      <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap">
+        <p style="margin:0;font-size:26px;font-weight:800" data-price-label>{money(first.price)}</p>
+        {d.sizeNote && p.variants.length > 1 && <span style="font-size:13px;font-weight:600;background:#F4F4F2;padding:4px 10px">{d.sizeNote}</span>}
+      </div>
+
+      <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:stretch">
+        <label class="sr-only" for="qty">تعداد</label>
+        <select id="qty" data-qty class="input" style="width:90px;min-height:52px;border-color:#111111">
+          {[1, 2, 3, 4, 5].map((n) => <option value={n}>{fa(n)}</option>)}
+        </select>
+        {p.inStock
+          ? <button type="button" class="btn btn-dark" style="flex:1 1 200px;min-height:52px" data-add={first.id} data-name={p.nameFa}>افزودن به سبد</button>
+          : <button type="button" class="btn btn-line" style="flex:1 1 200px;min-height:52px" data-alert={p.id}>ناموجود · موجود شد خبرم کن</button>}
+        <button type="button" data-wish={p.id} aria-pressed="false" aria-label="افزودن به علاقه‌مندی‌ها" style="width:52px;min-height:52px;border:1px solid #111111;background:#FFFFFF;display:inline-flex;align-items:center;justify-content:center">
+          <svg width="20" height="20" viewBox="0 0 24 24" class="heart" aria-hidden="true"><path d="M19 14c1.5-1.5 3-3.2 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.8 0-3 .5-4.5 2-1.5-1.5-2.7-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4 3 5.5l7 7Z"></path></svg>
+        </button>
+      </div>
+
+      <ul class="perks">
+        <li><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7h11v9H3zM14 10h4l3 3v3h-7"></path><circle cx="7" cy="18" r="2"></circle><circle cx="17" cy="18" r="2"></circle></svg><span>تحویل ۲ تا ۴ روز کاری · ارسال رایگان بالای {money(store.freeShipFrom).replace(' تومان', '')} تومان</span></li>
+        <li><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 0 1 15.7-6L21 8"></path><path d="M21 3v5h-5"></path><path d="M21 12a9 9 0 0 1-15.7 6L3 16"></path><path d="M8 16H3v5"></path></svg><span>۷ روز ضمانت بازگشت کالا · <a href="/returns" style="text-decoration:underline">شرایط مرجوعی</a></span></li>
+        <li><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6z"></path><path d="m9 12 2 2 4-4"></path></svg><span>اصالت کالا تضمین‌شده{p.ircCode ? <> · کد IRC: <span class="en">{p.ircCode}</span></> : ' · دارای مجوز سازمان غذا و دارو'}</span></li>
+      </ul>
+
+      {!!d.specs?.length && (
+        <div style={`display:grid;grid-template-columns:repeat(${d.specs.length},minmax(0,1fr));border:1px solid #E5E5E3`}>
+          {d.specs.map((sp, i) => (
+            <div style={`padding:12px;text-align:center;${i ? 'border-inline-start:1px solid #E5E5E3' : ''}`}>
+              <p style="margin:0;font-size:11px;color:#5C5C5C">{sp.label}</p>
+              <p style="margin:4px 0 0;font-size:14px;font-weight:700">{sp.value}</p>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  </section>
+
+  <!-- Details: every panel is in the HTML (indexable); tabs only toggle visibility -->
+  <section class="wrap" aria-label="جزئیات محصول" style="padding-bottom:80px">
+    <div role="tablist" class="scroll-x" style="display:flex;gap:28px;border-bottom:1px solid #E5E5E3;margin-bottom:32px">
+      {tabs.map((t, i) => <button type="button" class="tab" role="tab" id={`t-${t.id}`} aria-controls={`pn-${t.id}`} aria-selected={i === 0} data-ptab={t.id}>{t.label}</button>)}
+    </div>
+
+    <div role="tabpanel" id="pn-what" aria-labelledby="t-what" style="display:flex;flex-wrap:wrap;gap:48px">
+      <div style="flex:1 1 440px;min-width:0;display:flex;flex-direction:column;gap:16px;font-size:15px;line-height:2;color:#3A3A3A">
+        <h2 class="h2" style="color:#111111">برای چه کسی و چرا؟</h2>
+        {(d.whatFor?.length ? d.whatFor : [description]).map((t) => <p style="margin:0">{t}</p>)}
+      </div>
+      {!!d.clinical?.stats.length && (
+        <div style="flex:1 1 360px;min-width:0;background:#111111;color:#FFFFFF;padding:28px;display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:24px">
+          <p style="margin:0;grid-column:1 / -1;font-size:12px;font-weight:600;color:#BDBDBD">نتایج بالینی{d.clinical.weeks ? ` پس از ${d.clinical.weeks} هفته` : ''}</p>
+          {d.clinical.stats.map((st) => <div><p style="margin:0;font-size:40px;font-weight:300">{st.pct}</p><p style="margin:6px 0 0;font-size:13px;color:#CFCFCF;line-height:1.8">{st.label}</p></div>)}
+        </div>
+      )}
+    </div>
+
+    {!!d.steps?.length && (
+      <div role="tabpanel" id="pn-how" aria-labelledby="t-how" hidden style="display:flex;flex-wrap:wrap;gap:32px">
+        <ol style="flex:1 1 440px;min-width:0;list-style:none;margin:0;padding:0">
+          {d.steps.map((st, i) => <li style="display:flex;gap:16px;padding:18px 0;border-top:1px solid #E5E5E3"><span style="flex:0 0 30px;height:30px;border:1px solid #111111;display:flex;align-items:center;justify-content:center;font-weight:700">{fa(i + 1)}</span><span style="font-size:15px;line-height:1.9">{st}</span></li>)}
+        </ol>
+        {d.tips && <div style="flex:1 1 320px;min-width:0;background:#F4F4F2;padding:24px;font-size:14px;line-height:2;color:#3A3A3A"><p style="margin:0 0 8px;font-weight:700;color:#111111">نکته‌ها</p><p style="margin:0">{d.tips}</p></div>}
+      </div>
+    )}
+
+    {tabs.some((t) => t.id === 'ingr') && (
+      <div role="tabpanel" id="pn-ingr" aria-labelledby="t-ingr" hidden style="display:flex;flex-direction:column;gap:16px;max-width:900px">
+        {p.inci ? <p class="en r" style="margin:0;font-size:15px;line-height:2">{p.inci}</p> : <p style="margin:0;font-size:14px;color:#5C5C5C">فهرست کامل ترکیبات (INCI) به‌زودی اضافه می‌شود.</p>}
+        <div style="display:flex;flex-wrap:wrap;gap:12px">
+          {ingredients.map((i) => <a href={`/ingredients/${i!.slug}`} style="font-size:14px;font-weight:600;text-decoration:underline;text-underline-offset:5px">درباره‌ی {i!.nameFa} در واژه‌نامه بخوانید</a>)}
+        </div>
+      </div>
+    )}
+
+    {(d.compatGood || d.compatAvoid) && (
+      <div role="tabpanel" id="pn-compat" aria-labelledby="t-compat" hidden style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px">
+        {d.compatGood && <div style="border:1px solid #111111;padding:24px;display:flex;flex-direction:column;gap:10px"><p style="margin:0;font-size:15px;font-weight:700">به‌خوبی ترکیب می‌شود با</p><p class="en r" style="margin:0;font-size:14px;line-height:2">{d.compatGood}</p></div>}
+        {d.compatAvoid && <div style="border:1px solid #D6D6D4;padding:24px;display:flex;flex-direction:column;gap:10px;background:#F4F4F2"><p style="margin:0;font-size:15px;font-weight:700">در یک مرحله استفاده نکنید با</p><p style="margin:0;font-size:14px;line-height:2">{d.compatAvoid}</p></div>}
+        <a href="/ingredients" style="border:1px solid #E5E5E3;padding:24px;display:flex;flex-direction:column;justify-content:space-between;gap:10px"><span style="font-size:15px;font-weight:700">جدول کامل سازگاری ترکیبات</span><span style="font-size:14px;text-decoration:underline;text-underline-offset:5px">مشاهده در واژه‌نامه</span></a>
+      </div>
+    )}
+
+    {!!d.faqs?.length && (
+      <div role="tabpanel" id="pn-faq" aria-labelledby="t-faq" hidden style="max-width:900px">
+        {d.faqs.map((f, i) => (
+          <details class="faq" open={i === 0}>
+            <summary>{f.q}</summary>
+            <p style="margin:0 0 20px;font-size:15px;line-height:2;color:#3A3A3A">{f.a}</p>
+          </details>
+        ))}
+      </div>
+    )}
+  </section>
+
+  {bundle.length > 0 && (
+    <section style="background:#F4F4F2">
+      <div class="wrap" style="padding-top:72px;padding-bottom:72px">
+        <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:flex-end;gap:16px;margin-bottom:24px">
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <p class="kicker">روتین کامل</p>
+            <h2 class="h2">با این‌ها، نتیجه‌ی بهتری می‌گیرید.</h2>
+          </div>
+          <a href="/quiz" style="font-size:14px;font-weight:600;text-decoration:underline;text-underline-offset:5px">روتین شخصی‌سازی‌شده بسازید</a>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:stretch" data-bundle>
+          {bundle.map((b, i) => (
+            <label class="bitem">
+              <input type="checkbox" checked data-bundle-item={bundleIds[i]} data-price={b.variants.find((v) => v.stock > 0)!.price} />
+              <div class="stage" style="flex:0 0 90px;height:110px"><div style="transform:scale(.55)"><ProductArt shape={b.shape} glass={b.glass} nameEn={b.nameEn} image={b.image} label="" /></div></div>
+              <span style="display:flex;flex-direction:column;gap:4px;min-width:0">
+                <span style="font-size:12px;color:#5C5C5C">{b.role}</span>
+                <a class="en r" href={`/p/${b.slug}`} style="font-size:14px;font-weight:600">{b.nameEn}</a>
+                <span style="font-size:14px;font-weight:700">{money(b.variants.find((v) => v.stock > 0)!.price)}</span>
+              </span>
+            </label>
+          ))}
+          <div style="flex:1 1 240px;min-width:0;background:#111111;color:#FFFFFF;padding:22px;display:flex;flex-direction:column;justify-content:space-between;gap:14px">
+            <p style="margin:0;font-size:13px;color:#BDBDBD" data-bundle-count>{fa(bundle.length)} محصول انتخاب شده</p>
+            <p style="margin:0;font-size:24px;font-weight:800" data-bundle-total>{money(bundle.reduce((n, b) => n + b.variants.find((v) => v.stock > 0)!.price, 0))}</p>
+            <button type="button" class="btn btn-white" data-bundle-add>افزودن موارد انتخاب‌شده</button>
+          </div>
+        </div>
+      </div>
+    </section>
+  )}
+
+  <section id="reviews" class="wrap" style="padding-top:80px;padding-bottom:80px;scroll-margin-top:90px">
+    <div style="display:flex;flex-wrap:wrap;gap:48px;align-items:flex-start">
+      <div style="flex:1 1 300px;max-width:380px;display:flex;flex-direction:column;gap:18px">
+        <h2 class="h2">نظرات مشتریان</h2>
+        {reviews.length > 0 ? (
+          <>
+            <div style="display:flex;align-items:baseline;gap:12px">
+              <span style="font-size:56px;font-weight:300;line-height:1">{fmtRating(p.rating)}</span>
+              <span style="font-size:14px;color:#5C5C5C">از ۵ · {group(reviews.length)} نظر</span>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:8px">
+              {dist.map((x) => (
+                <div style="display:flex;align-items:center;gap:10px;font-size:13px">
+                  <span style="width:44px">{fa(x.n)} ستاره</span>
+                  <span role="img" aria-label={`${fa(x.pct)} درصد نظرها ${fa(x.n)} ستاره`} style="height:6px;background:#E5E5E3;flex:1 1 auto;display:flex"><span style={`width:${x.pct}%;background:#111111`}></span></span>
+                  <span style="width:40px;color:#5C5C5C">{fa(x.pct)}٪</span>
+                </div>
+              ))}
+            </div>
+          </>
+        ) : <p style="margin:0;color:#5C5C5C">هنوز نظری ثبت نشده است. اولین نفر باشید.</p>}
+
+        <details class="review-form">
+          <summary class="btn btn-line">نوشتن نظر</summary>
+          <form id="review-form" style="border:1px solid #111111;padding:20px;display:flex;flex-direction:column;gap:14px;margin-top:12px">
+            <input type="hidden" name="productId" value={p.id} />
+            <fieldset style="border:0;padding:0;margin:0">
+              <legend style="margin:0 0 6px;font-size:13px;font-weight:600">امتیاز شما</legend>
+              <div class="starpick" dir="ltr">
+                {[5, 4, 3, 2, 1].map((n) => <><input type="radio" name="rating" value={n} id={`r${n}`} required /><label for={`r${n}`} aria-label={`${fa(n)} ستاره`}>★</label></>)}
+              </div>
+            </fieldset>
+            <label class="field">نام<input class="input" name="name" required maxlength="40" /></label>
+            <label class="field">نوع پوست
+              <select class="input" name="skin"><option>چرب</option><option>مختلط</option><option>خشک</option><option>حساس</option><option>نرمال</option></select>
+            </label>
+            <label class="field">نظر شما<textarea class="input" name="body" rows="4" required minlength="10" maxlength="1500" placeholder="تجربه‌ی خود را بنویسید…"></textarea></label>
+            <p role="status" data-review-msg style="margin:0;font-size:13px"></p>
+            <button type="submit" class="btn btn-dark">ثبت نظر</button>
+          </form>
+        </details>
+      </div>
+
+      <div style="flex:999 1 520px;min-width:0">
+        {reviews.map((r) => (
+          <article style="border-top:1px solid #E5E5E3;padding:22px 0;display:flex;flex-direction:column;gap:10px">
+            <div style="display:flex;flex-wrap:wrap;justify-content:space-between;gap:10px;align-items:center">
+              <Stars value={r.rating} />
+              <time style="font-size:12px;color:#5C5C5C" datetime={r.createdAt.toISOString()}>{jalaliDate(r.createdAt)}</time>
+            </div>
+            <p style="margin:0;font-size:15px;line-height:2">{r.body}</p>
+            {r.reply && <p style="margin:0;padding:10px 12px;background:#F4F4F2;font-size:14px;line-height:1.9"><strong>پاسخ LUMIÈRE:</strong> {r.reply}</p>}
+            <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;font-size:13px">
+              <span style="font-weight:700">{r.name}</span>
+              {r.skin && <span style="border:1px solid #111111;padding:2px 8px;font-size:12px">پوست {r.skin}</span>}
+              {r.verified && <span style="color:#5C5C5C">خریدار تأییدشده</span>}
+            </div>
+          </article>
+        ))}
+      </div>
+    </div>
+  </section>
+
+  {related.length > 0 && (
+    <section style="border-top:1px solid #E5E5E3">
+      <div class="wrap" style="padding-top:64px;padding-bottom:80px">
+        <h2 class="h2" style="margin-bottom:24px">شاید این‌ها را هم بخواهید</h2>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:16px">
+          {related.map((r) => <ProductCard p={r} height={260} />)}
+        </div>
+      </div>
+    </section>
+  )}
+
+  <!-- Sticky mobile buy bar -->
+  <div class="mbar" aria-label="خرید سریع" data-product={p.id}>
+    <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
+      <span class="en r" style="font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{p.nameEn}</span>
+      <span style="font-size:15px;font-weight:800">{money(first.price)}</span>
+    </div>
+    {p.inStock && <button type="button" class="btn btn-dark" style="min-height:48px;padding:0 20px;flex:0 0 auto" data-add={first.id} data-name={p.nameFa}>افزودن به سبد</button>}
+  </div>
+</Layout>
+
+<style>
+  .perks { list-style: none; margin: 0; padding: 0; border: 1px solid #E5E5E3; }
+  .perks li { display: flex; gap: 12px; align-items: center; padding: 14px 16px; font-size: 14px; }
+  .perks li + li { border-top: 1px solid #E5E5E3; }
+  [role=tabpanel][hidden] { display: none !important; }
+  .faq { border-top: 1px solid #E5E5E3; }
+  .faq summary { min-height: 60px; display: flex; justify-content: space-between; align-items: center; gap: 16px; font-size: 16px; font-weight: 600; cursor: pointer; list-style: none; }
+  .faq summary::after { content: '+'; font-size: 22px; font-weight: 300; }
+  .faq[open] summary::after { content: '−'; }
+  .faq summary::-webkit-details-marker { display: none; }
+  .review-form > summary { list-style: none; width: 100%; }
+  .review-form > summary::-webkit-details-marker { display: none; }
+  .bitem { flex: 1 1 240px; min-width: 0; background: #FFFFFF; border: 1px solid #111111; padding: 18px; display: flex; gap: 16px; align-items: center; cursor: pointer; }
+  .bitem:has(input:not(:checked)) { border-color: #E5E5E3; }
+  .bitem input { width: 20px; height: 20px; accent-color: #111111; flex: 0 0 auto; }
+  .starpick { display: inline-flex; flex-direction: row-reverse; justify-content: flex-end; }
+  .starpick input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+  .starpick label { font-size: 28px; line-height: 1; color: #D6D6D4; cursor: pointer; padding: 2px; }
+  .starpick input:checked ~ label, .starpick label:hover, .starpick label:hover ~ label { color: #111111; }
+  .starpick input:focus-visible + label { outline: 2px solid #111111; }
+  .mbar { display: none; }
+  @media (max-width: 760px) {
+    .pstage { min-height: 440px !important; }
+    .hero-bottle { transform: translateX(-50%) scale(1.7) !important; }
+    .mbar { display: flex; position: fixed; left: 0; right: 0; bottom: 64px; z-index: 44; background: #FFFFFF; border-top: 1px solid #111111; padding: 10px 16px; gap: 12px; align-items: center; justify-content: space-between; }
+    body { padding-bottom: 136px; }
+  }
+</style>
+
+<script>
+  import { addToCart } from '~/scripts/store';
+
+  // Tabs
+  const tabs = document.querySelectorAll<HTMLButtonElement>('[data-ptab]');
+  tabs.forEach((t) => t.addEventListener('click', () => {
+    tabs.forEach((x) => {
+      const on = x === t;
+      x.setAttribute('aria-selected', String(on));
+      document.getElementById(`pn-${x.dataset.ptab}`)!.hidden = !on;
+    });
+  }));
+
+  // Keep the sticky mobile bar's variant in sync with the size picker.
+  document.querySelectorAll<HTMLButtonElement>('section[data-product] [data-size]').forEach((b) => b.addEventListener('click', () => {
+    const bar = document.querySelector<HTMLButtonElement>('.mbar [data-add]');
+    if (bar) bar.dataset.add = b.dataset.size;
+  }));
+
+  // Bundle
+  const fa = (n: number | string) => String(n).replace(/[0-9]/g, (d) => '۰۱۲۳۴۵۶۷۸۹'[+d]);
+  const money = (n: number) => fa(String(n).replace(/\B(?=(\d{3})+(?!\d))/g, '٬')) + ' تومان';
+  const boxes = [...document.querySelectorAll<HTMLInputElement>('[data-bundle-item]')];
+  const sync = () => {
+    const sel = boxes.filter((b) => b.checked);
+    document.querySelector('[data-bundle-count]')!.textContent = `${fa(sel.length)} محصول انتخاب شده`;
+    document.querySelector('[data-bundle-total]')!.textContent = money(sel.reduce((n, b) => n + Number(b.dataset.price), 0));
+  };
+  boxes.forEach((b) => b.addEventListener('change', sync));
+  document.querySelector('[data-bundle-add]')?.addEventListener('click', () => {
+    const sel = boxes.filter((b) => b.checked);
+    if (sel.length) addToCart(sel.map((b) => ({ variantId: Number(b.dataset.bundleItem), qty: 1 })), `${fa(sel.length)} محصول به سبد اضافه شد`);
+  });
+
+  // Review form
+  const form = document.getElementById('review-form') as HTMLFormElement | null;
+  form?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const msg = form.querySelector<HTMLElement>('[data-review-msg]')!;
+    const res = await fetch('/api/reviews', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(Object.fromEntries(new FormData(form))) });
+    if (res.ok) { form.reset(); msg.style.color = '#111111'; msg.textContent = 'نظر شما ثبت شد و پس از بررسی نمایش داده می‌شود. ممنون!'; }
+    else { msg.style.color = '#A3261B'; msg.textContent = (await res.json().catch(() => null))?.error ?? 'ثبت نظر انجام نشد.'; }
+  });
+</script>

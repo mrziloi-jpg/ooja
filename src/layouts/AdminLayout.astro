@@ -1,0 +1,98 @@
+---
+import '@fontsource-variable/vazirmatn';
+import '@fontsource/inter/latin-400.css';
+import '@fontsource/inter/latin-600.css';
+import '@fontsource/inter/latin-700.css';
+import '~/styles/admin.css';
+import { navCounts } from '~/lib/admin';
+import { fa } from '~/lib/format';
+
+interface Props { title: string; section: string; /** Search box target; defaults to orders. */ searchAction?: string }
+const { title, section, searchAction = '/admin/orders' } = Astro.props;
+const counts = await navCounts();
+const user = Astro.locals.user!;
+const nav = [
+  ['dash', '/admin', 'داشبورد', 0],
+  ['orders', '/admin/orders', 'سفارش‌ها', counts.orders],
+  ['products', '/admin/products', 'محصولات و موجودی', counts.products],
+  ['customers', '/admin/customers', 'مشتریان', 0],
+  ['discounts', '/admin/discounts', 'کدهای تخفیف', 0],
+  ['ingredients', '/admin/ingredients', 'واژه‌نامه‌ی ترکیبات', 0],
+  ['reviews', '/admin/reviews', 'نظرات', counts.reviews],
+  ['consults', '/admin/consultations', 'مشاوره‌ها', 0],
+  ['messages', '/admin/messages', 'پیام‌های پشتیبانی', counts.messages],
+  ['settings', '/admin/settings', 'تنظیمات', 0],
+] as const;
+const ok = Astro.url.searchParams.get('ok');
+const err = Astro.url.searchParams.get('err');
+const q = Astro.url.searchParams.get('q') ?? '';
+---
+<!doctype html>
+<html lang="fa-IR" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>{title} — پنل مدیریت LUMIÈRE</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+</head>
+<body>
+  <div style="min-height:100vh;display:flex;align-items:stretch">
+    <aside class="side" id="side" aria-label="منوی مدیریت" style="background:#111111;color:#FFFFFF;display:flex;flex-direction:column">
+      <div style="height:64px;display:flex;align-items:center;justify-content:space-between;padding:0 18px;border-bottom:1px solid #262626">
+        <span class="en" style="font-size:18px;font-weight:700">LUMIÈRE<span style="color:#6B6B6B">.</span> <span style="font-size:11px;font-weight:600;color:#9A9A98">ADMIN</span></span>
+        <button class="mtop" type="button" aria-label="بستن منو" data-side-close style="background:none;border:0;color:#FFFFFF;width:40px;height:40px;align-items:center;justify-content:center">✕</button>
+      </div>
+      <nav style="display:flex;flex-direction:column;padding:12px 0;flex:1 1 auto">
+        {nav.map(([key, href, label, n]) => (
+          <a class="nav-i" href={href} aria-current={section === key ? 'page' : undefined}><span>{label}</span>{n > 0 && <span class="cnt">{fa(n)}</span>}</a>
+        ))}
+      </nav>
+      <div style="padding:16px 18px;border-top:1px solid #262626;display:flex;flex-direction:column;gap:10px;font-size:12px;color:#9A9A98">
+        <a href="/" style="color:#FFFFFF;font-size:13px">مشاهده‌ی فروشگاه ←</a>
+        <form method="post" action="/api/auth/logout"><button class="rowbtn" style="color:#BDBDBD;font-weight:400">خروج</button></form>
+      </div>
+    </aside>
+
+    <div style="flex:1 1 auto;min-width:0;display:flex;flex-direction:column">
+      <header class="topbar" style="height:64px;background:#FFFFFF;border-bottom:1px solid #E5E5E3;display:flex;align-items:center;gap:12px;padding:0 20px;position:sticky;top:0;z-index:30">
+        <button class="mtop" type="button" aria-label="باز کردن منو" data-side-open style="width:40px;height:40px;background:none;border:0;align-items:center;justify-content:center">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h10"></path></svg>
+        </button>
+        <h1 style="margin:0;font-size:18px;font-weight:800;white-space:nowrap">{title}</h1>
+        <form method="get" action={searchAction} class="hide-m" style="flex:0 1 360px;margin-inline-start:auto" role="search">
+          <label for="gq" class="sr-only">جستجو</label>
+          <input id="gq" name="q" class="input" type="search" placeholder="جستجوی سفارش، مشتری یا محصول…" value={q} />
+        </form>
+        <a href="/admin/orders?status=pending" aria-label={`سفارش‌های در انتظار: ${fa(counts.orders)}`} style="width:40px;height:40px;position:relative;display:inline-flex;align-items:center;justify-content:center;margin-inline-start:auto">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"></path><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"></path></svg>
+          {counts.orders > 0 && <span style="position:absolute;top:6px;left:6px;width:8px;height:8px;border-radius:50%;background:#A3261B"></span>}
+        </a>
+        <span style="display:inline-flex;align-items:center;gap:8px;font-size:13px">
+          <span aria-hidden="true" style="width:32px;height:32px;border-radius:50%;background:#111111;color:#FFFFFF;display:inline-flex;align-items:center;justify-content:center;font-weight:700">{(user.firstName ?? 'م').slice(0, 1)}</span>
+          <span class="hide-m">{user.firstName ?? 'مدیر فروشگاه'}</span>
+        </span>
+      </header>
+
+      <main class="content" style="padding:24px 28px 64px;display:flex;flex-direction:column;gap:20px">
+        {ok && <p class="flash" role="status">{ok}</p>}
+        {err && <p class="flash err" role="alert">{err}</p>}
+        <slot />
+      </main>
+    </div>
+  </div>
+  <div id="side-overlay" hidden data-side-close style="position:fixed;inset:0;z-index:70;background:rgba(0,0,0,.35)"></div>
+
+  <script>
+    const side = document.getElementById('side')!;
+    const overlay = document.getElementById('side-overlay')!;
+    const set = (open: boolean) => { side.classList.toggle('open', open); overlay.hidden = !open; };
+    document.querySelectorAll('[data-side-open]').forEach((b) => b.addEventListener('click', () => set(true)));
+    document.querySelectorAll('[data-side-close]').forEach((b) => b.addEventListener('click', () => set(false)));
+    // Toggles and selects marked data-autosubmit save immediately.
+    document.querySelectorAll<HTMLInputElement | HTMLSelectElement>('[data-autosubmit]').forEach((el) => el.addEventListener('change', () => el.form?.requestSubmit()));
+    // Confirm destructive actions.
+    document.querySelectorAll<HTMLElement>('[data-confirm]').forEach((el) => el.addEventListener('click', (e) => { if (!confirm(el.dataset.confirm)) e.preventDefault(); }));
+  </script>
+</body>
+</html>

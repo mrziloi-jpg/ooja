@@ -1,0 +1,53 @@
+---
+// Printable shipping labels (A6-ish, two per row on A4). Open with ?ids=1&ids=2
+import '~/styles/admin.css';
+import '@fontsource-variable/vazirmatn';
+import { inArray } from 'drizzle-orm';
+import { db, schema as s } from '~/db';
+import { fa } from '~/lib/format';
+import { SHIP_LABELS } from '~/lib/admin';
+
+const ids = Astro.url.searchParams.getAll('ids').map(Number).filter(Boolean).slice(0, 200);
+const orders = ids.length ? await db.select().from(s.orders).where(inArray(s.orders.id, ids)) : [];
+const items = ids.length ? await db.select().from(s.orderItems).where(inArray(s.orderItems.orderId, ids)) : [];
+---
+<!doctype html>
+<html lang="fa-IR" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="robots" content="noindex" />
+  <title>برچسب ارسال</title>
+  <style>
+    body { background: #FFFFFF; padding: 16px; }
+    .labels { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+    .label { border: 1px dashed #111111; padding: 16px; break-inside: avoid; display: flex; flex-direction: column; gap: 8px; font-size: 13px; }
+    .label h2 { margin: 0; font-size: 16px; }
+    @page { size: A4; margin: 10mm; }
+  </style>
+</head>
+<body>
+  <div class="no-print" style="margin-bottom:16px;display:flex;gap:8px;align-items:center">
+    <button class="btn btn-dark" onclick="print()">چاپ</button>
+    <span class="mute">{fa(orders.length)} برچسب</span>
+  </div>
+  {orders.length === 0 && <p>سفارشی انتخاب نشده است.</p>}
+  <div class="labels">
+    {orders.map((o) => (
+      <section class="label">
+        <div style="display:flex;justify-content:space-between;align-items:baseline">
+          <strong class="en" style="font-size:15px">LUMIÈRE.</strong>
+          <span class="en" style="font-weight:700">{o.code}</span>
+        </div>
+        <div><span class="mute">گیرنده:</span> <h2 style="display:inline">{o.firstName} {o.lastName}</h2></div>
+        <div style="line-height:1.9">{o.province}، {o.city}، {o.address}</div>
+        <div>کد پستی: <strong class="en">{o.postal}</strong> · موبایل: <strong class="en">{o.phone}</strong>{o.landline && <> · تلفن: <span class="en">{o.landline}</span></>}</div>
+        <div style="border-top:1px solid #E5E5E3;padding-top:8px">روش ارسال: {SHIP_LABELS[o.shipMethod]}{o.payMethod === 'cod' && <strong> · پرداخت در محل: {fa(o.total.toLocaleString('en'))} تومان</strong>}</div>
+        <div class="mute" style="font-size:12px">
+          {items.filter((it) => it.orderId === o.id).map((it) => <span class="en">{it.nameEn} ({it.label}) ×{it.qty}<br /></span>)}
+          {o.samples.length > 0 && <span>+ {fa(o.samples.length)} نمونه</span>}
+        </div>
+      </section>
+    ))}
+  </div>
+</body>
+</html>

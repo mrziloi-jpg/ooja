@@ -1,0 +1,11 @@
+---
+// Zarinpal redirects here with ?Authority=...&Status=OK|NOK
+import { getCartId } from '~/lib/cart';
+import { handleCallback } from '~/lib/orders';
+
+const authority = Astro.url.searchParams.get('Authority') ?? '';
+const ok = Astro.url.searchParams.get('Status') === 'OK';
+const r = authority ? await handleCallback(authority, ok, getCartId(Astro.cookies)) : null;
+if (!r) return Astro.redirect('/cart');
+return Astro.redirect(r.ok ? `/checkout/done/${r.code}` : `/checkout/failed/${r.code}`);
+---

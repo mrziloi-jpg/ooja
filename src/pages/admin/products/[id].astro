@@ -1,0 +1,270 @@
+---
+// Create (/admin/products/new) or edit a product: copy, targeting, variants & stock, page details, photo.
+import AdminLayout from '~/layouts/AdminLayout.astro';
+import { and, asc, eq, inArray } from 'drizzle-orm';
+import { db, schema as s } from '~/db';
+import type { ProductDetails } from '~/db/schema';
+import { invalidateCatalog } from '~/lib/catalog';
+import { isUniqueViolation, num, str } from '~/lib/admin';
+import { SKIN_TYPES } from '~/lib/format';
+import { deleteProductImage, saveProductImage } from '~/lib/media';
+
+const isNew = Astro.params.id === 'new';
+const id = isNew ? null : Number(Astro.params.id);
+if (!isNew && !Number.isInteger(id)) return new Response(null, { status: 404 });
+
+const lines = (v: string) => v.split('\n').map((x) => x.trim()).filter(Boolean);
+const paragraphs = (v: string) => v.split(/\n\s*\n/).map((x) => x.replace(/\s+/g, ' ').trim()).filter(Boolean);
+const slugify = (v: string) => v.toLowerCase().replace(/%/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+let error: string | null = null;
+let submitted: FormData | null = null;
+
+if (Astro.request.method === 'POST') {
+  const f = await Astro.request.formData();
+  submitted = f;
+  try {
+    const nameEn = str(f.get('nameEn'));
+    const nameFa = str(f.get('nameFa'));
+    if (!nameEn || !nameFa) throw new Error('نام لاتین و نام فارسی لازم است.');
+    const slug = slugify(str(f.get('slug')) || nameEn);
+    if (!slug) throw new Error('نامک (slug) معتبر نیست.');
+    const categoryId = num(f.get('categoryId'));
+    if (!categoryId) throw new Error('دسته را انتخاب کنید.');
+
+    // Variants: rows v_<i>_*; a row with an id is updated (or deleted if marked), a new row needs label + price.
+    const rows = [...new Set([...f.keys()].filter((k) => /^v_\d+_label$/.test(k)).map((k) => k.split('_')[1]))].map((i) => ({
+      id: num(f.get(`v_${i}_id`)),
+      label: str(f.get(`v_${i}_label`)),
+      price: num(f.get(`v_${i}_price`)),
+      compareAt: num(f.get(`v_${i}_compareAt`)),
+      stock: num(f.get(`v_${i}_stock`)) ?? 0,
+      sku: str(f.get(`v_${i}_sku`)) || null,
+      remove: f.get(`v_${i}_remove`) === 'on',
+    }));
+    const keep = rows.filter((r) => !r.remove && (r.id || r.label));
+    if (!keep.length) throw new Error('حداقل یک حجم/قیمت لازم است.');
+    for (const r of keep) {
+      if (!r.label || !r.price || r.price <= 0) throw new Error('برای هر حجم، عنوان و قیمت (تومان) لازم است.');
+      if (r.stock < 0 || !Number.isInteger(r.stock)) throw new Error('موجودی باید عدد صحیح و نامنفی باشد.');
+    }
+
+    const faqs: { q: string; a: string }[] = [];
+    for (let i = 0; i < 10; i++) {
+      const q = str(f.get(`faq_${i}_q`)), a = str(f.get(`faq_${i}_a`));
+      if (q && a) faqs.push({ q, a });
+    }
+    const specs = lines(str(f.get('specs'))).map((l) => { const [label, ...rest] = l.split(':'); return { label: label.trim(), value: rest.join(':').trim() }; }).filter((x) => x.label && x.value);
+    const stats = lines(str(f.get('clinicalStats'))).map((l) => { const [pct, ...rest] = l.split('|'); return { pct: pct.trim(), label: rest.join('|').trim() }; }).filter((x) => x.pct && x.label);
+    const details: ProductDetails = {
+      kicker: str(f.get('kicker')) || undefined,
+      skinTags: str(f.get('skinTags')).split(/[,،]/).map((x) => x.trim()).filter(Boolean),
+      specs, whatFor: paragraphs(str(f.get('whatFor'))), steps: lines(str(f.get('steps'))),
+      tips: str(f.get('tips')) || undefined, compatGood: str(f.get('compatGood')) || undefined, compatAvoid: str(f.get('compatAvoid')) || undefined,
+      faqs, sizeNote: str(f.get('sizeNote')) || undefined,
+      clinical: stats.length ? { weeks: str(f.get('clinicalWeeks')) || undefined, stats } : undefined,
+    };
+    const values = {
+      slug, nameEn, nameFa, categoryId,
+      tagline: str(f.get('tagline')) || null, blurb: str(f.get('blurb')) || null, description: str(f.get('description')) || null,
+      inci: str(f.get('inci')) || null, ircCode: str(f.get('ircCode')) || null,
+      badge: str(f.get('badge')) || null, shape: str(f.get('shape')) || 'dropper', glass: str(f.get('glass')) || '#FFFFFF',
+      skinTypes: f.getAll('skinTypes').map(String).filter((x) => x in SKIN_TYPES),
+      sort: num(f.get('sort')) ?? 0, active: f.get('active') === 'on', details, updatedAt: new Date(),
+    };
+    const concernIds = f.getAll('concerns').map(Number).filter(Boolean);
+    const ingredientIds = f.getAll('ingredients').map(Number).filter(Boolean);
+
+    const savedId = await db.transaction(async (tx) => {
+      let pid = id;
+      if (pid) await tx.update(s.products).set(values).where(eq(s.products.id, pid));
+      else [{ id: pid }] = await tx.insert(s.products).values(values).returning({ id: s.products.id });
+
+      const removeIds = rows.filter((r) => r.remove && r.id).map((r) => r.id!);
+      if (removeIds.length) await tx.delete(s.variants).where(and(eq(s.variants.productId, pid!), inArray(s.variants.id, removeIds)));
+      for (const [i, r] of keep.entries()) {
+        const v = { label: r.label, price: r.price!, compareAt: r.compareAt || null, stock: r.stock, sku: r.sku, sort: i };
+        if (r.id) await tx.update(s.variants).set(v).where(and(eq(s.variants.id, r.id), eq(s.variants.productId, pid!)));
+        else await tx.insert(s.variants).values({ ...v, productId: pid! });
+      }
+      await tx.delete(s.productConcerns).where(eq(s.productConcerns.productId, pid!));
+      if (concernIds.length) await tx.insert(s.productConcerns).values(concernIds.map((concernId) => ({ productId: pid!, concernId })));
+      await tx.delete(s.productIngredients).where(eq(s.productIngredients.productId, pid!));
+      if (ingredientIds.length) await tx.insert(s.productIngredients).values(ingredientIds.map((ingredientId) => ({ productId: pid!, ingredientId })));
+      return pid!;
+    });
+
+    // Photo changes happen after the row exists (new products need an id for the folder).
+    const [current] = await db.select({ image: s.products.image }).from(s.products).where(eq(s.products.id, savedId));
+    const file = f.get('image');
+    if (file instanceof File && file.size > 0) {
+      const base = await saveProductImage(savedId, file);
+      await db.update(s.products).set({ image: base }).where(eq(s.products.id, savedId));
+      await deleteProductImage(current.image);
+    } else if (f.get('removeImage') === 'on') {
+      await db.update(s.products).set({ image: null }).where(eq(s.products.id, savedId));
+      await deleteProductImage(current.image);
+    }
+
+    invalidateCatalog();
+    return Astro.redirect(`/admin/products/${savedId}?ok=${encodeURIComponent('محصول ذخیره شد.')}`, 303);
+  } catch (e: any) {
+    // Validation errors are thrown as plain Errors with a Persian message; anything else is unexpected.
+    const known = e instanceof Error && !('cause' in e && e.cause) && !(e as any).code;
+    error = isUniqueViolation(e) ? 'این نامک (slug) قبلاً برای محصول دیگری استفاده شده است.' : known ? e.message : 'ذخیره انجام نشد. لطفاً دوباره تلاش کنید.';
+    if (!known && !isUniqueViolation(e)) console.error('[admin] product save failed', e);
+  }
+}
+
+const [categories, concerns, ingredients] = await Promise.all([
+  db.select().from(s.categories).orderBy(asc(s.categories.sort)),
+  db.select().from(s.concerns).orderBy(asc(s.concerns.sort)),
+  db.select().from(s.ingredients).orderBy(asc(s.ingredients.id)),
+]);
+const [p] = id ? await db.select().from(s.products).where(eq(s.products.id, id)) : [];
+if (id && !p) return new Response(null, { status: 404 });
+const variants = id ? await db.select().from(s.variants).where(eq(s.variants.productId, id)).orderBy(asc(s.variants.sort)) : [];
+const pc = id ? (await db.select().from(s.productConcerns).where(eq(s.productConcerns.productId, id))).map((x) => x.concernId) : [];
+const pi = id ? (await db.select().from(s.productIngredients).where(eq(s.productIngredients.productId, id))).map((x) => x.ingredientId) : [];
+const d: ProductDetails = p?.details ?? {};
+// After a failed save, re-show what the admin typed instead of the stored values.
+const v = (name: string, stored: unknown) => (submitted?.has(name) ? String(submitted.get(name)) : String(stored ?? ''));
+const faqRows = [...(d.faqs ?? []), ...Array(Math.max(2, 5 - (d.faqs?.length ?? 0))).fill({ q: '', a: '' })].slice(0, 10);
+const variantRows = [...variants.map((v) => ({ ...v, isNew: false })), ...[0, 1].map(() => ({ id: 0, label: '', price: 0, compareAt: null, stock: 0, sku: null, isNew: true }))];
+---
+<AdminLayout title={isNew ? 'محصول جدید' : `ویرایش: ${p.nameEn}`} section="products" searchAction="/admin/products">
+  {error && <p class="flash err" role="alert">{error}</p>}
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:12px">
+    <a href="/admin/products" class="rowbtn">→ بازگشت به محصولات</a>
+    {p && <a href={`/p/${p.slug}`} target="_blank" class="rowbtn">مشاهده در فروشگاه</a>}
+  </div>
+
+  <form method="post" enctype="multipart/form-data" style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start">
+    <div style="flex:999 1 560px;min-width:0;display:flex;flex-direction:column;gap:16px">
+      <section class="panel">
+        <div class="ph"><h2>اطلاعات اصلی</h2></div>
+        <div class="pb grid2">
+          <label class="field full">نام لاتین (فرمول)<input class="input en" name="nameEn" required value={v('nameEn', p?.nameEn ?? '')} style="text-align:left" placeholder="Niacinamide 10% + Zinc 1%" /></label>
+          <label class="field full">نام فارسی<input class="input" name="nameFa" required value={v('nameFa', p?.nameFa ?? '')} /></label>
+          <label class="field">دسته
+            <select class="input" name="categoryId" required>{categories.map((c) => <option value={c.id} selected={p?.categoryId === c.id}>{c.name}</option>)}</select>
+          </label>
+          <label class="field">نشان
+            <select class="input" name="badge">
+              {[['', 'بدون نشان'], ['best', 'پرفروش'], ['new', 'جدید'], ['trend', 'ترند'], ['team', 'انتخاب تیم']].map(([v, l]) => <option value={v} selected={(p?.badge ?? '') === v}>{l}</option>)}
+            </select>
+          </label>
+          <label class="field full">نامک آدرس (slug) <span class="hint">خالی بگذارید تا از نام لاتین ساخته شود. تغییر آن، لینک‌های قبلی را از کار می‌اندازد.</span>
+            <input class="input en" name="slug" value={v('slug', p?.slug ?? '')} style="text-align:left" placeholder="niacinamide-10-zinc-1" />
+          </label>
+          <label class="field full">جمله‌ی کوتاه (زیر نام در کارت محصول)<input class="input" name="tagline" value={v('tagline', p?.tagline ?? '')} placeholder="شفاف‌کننده، تنظیم چربی" /></label>
+          <label class="field full">بالای عنوان صفحه‌ی محصول<input class="input" name="kicker" value={v('kicker', d.kicker ?? '')} placeholder="سرم · شفاف‌کننده و تنظیم‌کننده‌ی چربی" /></label>
+          <label class="field full">توضیح (بالای صفحه و توضیحات گوگل)<textarea class="input" name="description" rows="3">{v('description', p?.description ?? '')}</textarea></label>
+          <label class="field full">توضیح کارت آرایشی (اختیاری)<input class="input" name="blurb" value={v('blurb', p?.blurb ?? '')} /></label>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="ph"><h2>حجم، قیمت و موجودی</h2></div>
+        <div class="scroll-x">
+          <table class="tbl" style="min-width:640px">
+            <thead><tr><th>عنوان حجم</th><th>قیمت (تومان)</th><th>قیمت قبل از تخفیف</th><th>موجودی</th><th>SKU</th><th>حذف</th></tr></thead>
+            <tbody>
+              {variantRows.map((row, i) => (
+                <tr>
+                  <td><input type="hidden" name={`v_${i}_id`} value={row.isNew ? '' : row.id} /><input class="input" name={`v_${i}_label`} value={v(`v_${i}_label`, row.label)} placeholder={row.isNew ? 'حجم جدید، مثلاً ۳۰ میلی‌لیتر' : ''} aria-label="عنوان حجم" /></td>
+                  <td><input class="input en" name={`v_${i}_price`} inputmode="numeric" value={v(`v_${i}_price`, row.price || '')} style="text-align:left" aria-label="قیمت" /></td>
+                  <td><input class="input en" name={`v_${i}_compareAt`} inputmode="numeric" value={v(`v_${i}_compareAt`, row.compareAt ?? '')} style="text-align:left" aria-label="قیمت قبل از تخفیف" /></td>
+                  <td><input class="input en" name={`v_${i}_stock`} inputmode="numeric" value={v(`v_${i}_stock`, row.isNew ? '' : row.stock)} style="text-align:left;width:90px" aria-label="موجودی" /></td>
+                  <td><input class="input en" name={`v_${i}_sku`} value={v(`v_${i}_sku`, row.sku ?? '')} style="text-align:left;width:120px" aria-label="SKU" /></td>
+                  <td>{!row.isNew && <input type="checkbox" name={`v_${i}_remove`} aria-label="حذف این حجم" style="width:16px;height:16px;accent-color:#A3261B" />}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p class="mute pb" style="margin:0;font-size:12px">برای افزودن حجم، یکی از ردیف‌های خالی را پر کنید. «قیمت قبل از تخفیف» برای نمایش تخفیف در ترب و فروشگاه است.</p>
+      </section>
+
+      <section class="panel">
+        <div class="ph"><h2>مناسب برای</h2></div>
+        <div class="pb" style="display:flex;flex-direction:column;gap:14px">
+          <fieldset style="border:0;padding:0;margin:0"><legend style="font-size:12px;font-weight:600;margin-bottom:6px">نوع پوست (فیلتر فروشگاه)</legend>
+            <div style="display:flex;flex-wrap:wrap;gap:4px 16px">{Object.entries(SKIN_TYPES).map(([k, l]) => <label class="cbx"><input type="checkbox" name="skinTypes" value={k} checked={p?.skinTypes.includes(k)} />{l}</label>)}</div>
+          </fieldset>
+          <fieldset style="border:0;padding:0;margin:0"><legend style="font-size:12px;font-weight:600;margin-bottom:6px">نگرانی‌های پوست (صفحه‌های نگرانی)</legend>
+            <div style="display:flex;flex-wrap:wrap;gap:4px 16px">{concerns.map((c) => <label class="cbx"><input type="checkbox" name="concerns" value={c.id} checked={pc.includes(c.id)} />{c.name}</label>)}</div>
+          </fieldset>
+          <fieldset style="border:0;padding:0;margin:0"><legend style="font-size:12px;font-weight:600;margin-bottom:6px">ترکیبات کلیدی (واژه‌نامه)</legend>
+            <div style="display:flex;flex-wrap:wrap;gap:4px 16px">{ingredients.map((g) => <label class="cbx"><input type="checkbox" name="ingredients" value={g.id} checked={pi.includes(g.id)} />{g.nameFa}</label>)}</div>
+          </fieldset>
+          <label class="field">برچسب‌های نوع پوست در صفحه‌ی محصول <span class="hint">با ویرگول جدا کنید</span><input class="input" name="skinTags" value={v('skinTags', (d.skinTags ?? []).join('، '))} placeholder="پوست چرب، مختلط، مستعد آکنه" /></label>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="ph"><h2>محتوای صفحه‌ی محصول</h2></div>
+        <div class="pb grid2">
+          <label class="field full">برای چه کسی و چرا؟ <span class="hint">پاراگراف‌ها را با یک خط خالی جدا کنید</span><textarea class="input" name="whatFor" rows="5">{v('whatFor', (d.whatFor ?? []).join('\n\n'))}</textarea></label>
+          <label class="field full">نحوه‌ی مصرف <span class="hint">هر مرحله در یک خط</span><textarea class="input" name="steps" rows="4">{v('steps', (d.steps ?? []).join('\n'))}</textarea></label>
+          <label class="field full">نکته‌ها<textarea class="input" name="tips" rows="2">{v('tips', d.tips ?? '')}</textarea></label>
+          <label class="field full">مشخصات <span class="hint">هر خط: «عنوان: مقدار»، مثلاً «بافت: ژل سبک»</span><textarea class="input" name="specs" rows="4">{v('specs', (d.specs ?? []).map((x) => `${x.label}: ${x.value}`).join('\n'))}</textarea></label>
+          <label class="field full">فهرست کامل ترکیبات (INCI)<textarea class="input en" name="inci" rows="3" style="text-align:left">{v('inci', p?.inci ?? '')}</textarea></label>
+          <label class="field">به‌خوبی ترکیب می‌شود با<input class="input" name="compatGood" value={v('compatGood', d.compatGood ?? '')} /></label>
+          <label class="field">در یک مرحله استفاده نکنید با<input class="input" name="compatAvoid" value={v('compatAvoid', d.compatAvoid ?? '')} /></label>
+          <label class="field full">متن کنار حجم بزرگ‌تر<input class="input" name="sizeNote" value={v('sizeNote', d.sizeNote ?? '')} placeholder="۱۲٪ صرفه‌جویی نسبت به دو بطری ۳۰ میلی‌لیتری" /></label>
+          <label class="field">نتایج بالینی: بعد از چند هفته<input class="input" name="clinicalWeeks" value={v('clinicalWeeks', d.clinical?.weeks ?? '')} placeholder="۸" /></label>
+          <label class="field">نتایج بالینی <span class="hint">هر خط: «درصد | توضیح». فقط اعداد واقعی از گزارش آزمایش.</span><textarea class="input" name="clinicalStats" rows="3">{v('clinicalStats', (d.clinical?.stats ?? []).map((x) => `${x.pct} | ${x.label}`).join('\n'))}</textarea></label>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="ph"><h2>سؤالات متداول</h2><span class="mute" style="font-size:12px">در گوگل هم نمایش داده می‌شود</span></div>
+        <div class="pb" style="display:flex;flex-direction:column;gap:12px">
+          {faqRows.map((x, i) => (
+            <div class="grid2" style="border-bottom:1px solid #EFEFED;padding-bottom:12px">
+              <label class="field full">سؤال {i + 1}<input class="input" name={`faq_${i}_q`} value={v(`faq_${i}_q`, x.q)} /></label>
+              <label class="field full">پاسخ<textarea class="input" name={`faq_${i}_a`} rows="2">{v(`faq_${i}_a`, x.a)}</textarea></label>
+            </div>
+          ))}
+        </div>
+      </section>
+    </div>
+
+    <div style="flex:1 1 300px;max-width:400px;display:flex;flex-direction:column;gap:16px;position:sticky;top:84px">
+      <section class="panel">
+        <div class="ph"><h2>انتشار</h2></div>
+        <div class="pb" style="display:flex;flex-direction:column;gap:12px">
+          <label class="cbx" style="justify-content:space-between;width:100%">نمایش در فروشگاه<input type="checkbox" class="switch" name="active" checked={p ? p.active : true} /></label>
+          <label class="field">ترتیب نمایش <span class="hint">عدد کمتر = بالاتر</span><input class="input en" name="sort" inputmode="numeric" value={v('sort', p?.sort ?? 0)} style="text-align:left" /></label>
+          <label class="field">کد IRC (سازمان غذا و دارو)<input class="input en" name="ircCode" value={v('ircCode', p?.ircCode ?? '')} style="text-align:left" /></label>
+          <button class="btn btn-dark" style="width:100%">ذخیره</button>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="ph"><h2>تصویر محصول</h2></div>
+        <div class="pb" style="display:flex;flex-direction:column;gap:10px">
+          {p?.image && (
+            <>
+              <img src={`${p.image}-480.webp`} alt="" width="480" height="600" style="width:100%;height:auto;background:#F4F4F2" />
+              <label class="cbx"><input type="checkbox" name="removeImage" />حذف تصویر (نمایش طرح بطری)</label>
+            </>
+          )}
+          <label class="field">{p?.image ? 'جایگزینی تصویر' : 'بارگذاری تصویر'} <span class="hint">JPG/PNG/WebP، حداکثر ۱۰ مگابایت. نسبت ۴:۵ بهترین نتیجه را می‌دهد؛ نسخه‌های سبک AVIF/WebP خودکار ساخته می‌شوند.</span>
+            <input type="file" name="image" accept="image/jpeg,image/png,image/webp,image/avif" style="font-size:13px" />
+          </label>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="ph"><h2>طرح جایگزین (بدون عکس)</h2></div>
+        <div class="pb grid2">
+          <label class="field">شکل بطری
+            <select class="input" name="shape">{[['dropper', 'قطره‌چکان'], ['tube', 'تیوب'], ['jar', 'کاسه'], ['stick', 'استیک']].map(([v, l]) => <option value={v} selected={(p?.shape ?? 'dropper') === v}>{l}</option>)}</select>
+          </label>
+          <label class="field">رنگ شیشه<input class="input" type="color" name="glass" value={v('glass', p?.glass ?? '#FFFFFF')} style="padding:2px" /></label>
+        </div>
+      </section>
+    </div>
+  </form>
+</AdminLayout>

@@ -1,0 +1,5 @@
+# Keep LF line endings in the repo and on checkout so shell scripts and configs work on the Linux server.
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.woff2 binary

@@ -1,0 +1,96 @@
+---
+import { getCatalog } from '~/lib/catalog';
+import { getStore } from '~/lib/settings';
+interface Props { active?: string }
+const { active } = Astro.props;
+const cat = await getCatalog();
+const { promos } = await getStore();
+const arrow = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5"></path><path d="m11 6-6 6 6 6"></path></svg>';
+const links = [
+  { href: '/shop?cat=makeup', label: 'آرایش پوست‌محور', key: 'makeup' },
+  { href: '/quiz', label: 'روتین‌ساز', key: 'quiz' },
+  { href: '/ingredients', label: 'واژه‌نامه‌ی ترکیبات', key: 'ingredients' },
+  { href: '/consultation', label: 'مشاوره', key: 'consultation' },
+  { href: '/help', label: 'پشتیبانی', key: 'help' },
+];
+---
+<div style="background:#111111;color:#FFFFFF">
+  <div class="wrap" style="height:40px;display:flex;align-items:center;justify-content:center;gap:12px">
+    <button class="promo-btn" type="button" aria-label="پیام قبلی" data-promo-step="-1">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg>
+    </button>
+    <p aria-live="polite" data-promos={JSON.stringify(promos)} style="margin:0;font-size:13px;text-align:center;min-width:0;flex:0 1 520px">{promos[0]}</p>
+    <button class="promo-btn" type="button" aria-label="پیام بعدی" data-promo-step="1">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"></path></svg>
+    </button>
+  </div>
+</div>
+
+<header class="site-header" style="position:sticky;top:0;z-index:40;background:#FFFFFF;border-bottom:1px solid #E5E5E3">
+  <div class="wrap" style="height:72px;display:flex;align-items:center;justify-content:space-between;gap:24px">
+    <div style="display:flex;align-items:center;gap:28px;flex:1 1 0;min-width:0">
+      <button class="icon-btn menu-btn" type="button" aria-label="باز کردن منو" aria-expanded="false" aria-controls="mobile-menu" data-menu-toggle>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"></path></svg>
+      </button>
+      <a href="/" class="en" style="font-size:22px;font-weight:700;letter-spacing:.02em" aria-label="LUMIÈRE — صفحه اصلی">LUMIÈRE<span style="color:#9A9A98">.</span></a>
+      <nav class="nav-links" aria-label="منوی اصلی" style="gap:26px;align-items:center">
+        <div class="mega-wrap">
+          <a class:list={['navbtn', { on: active === 'shop' }]} href="/shop">مراقبت پوست
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg>
+          </a>
+          <div class="mega">
+            <div class="wrap" style="padding-top:36px;padding-bottom:40px;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:32px">
+              <div style="display:flex;flex-direction:column;gap:10px">
+                <p class="kicker" style="margin-bottom:6px">بر اساس نیاز پوست</p>
+                {cat.concerns.map((c) => <a href={`/concern/${c.slug}`}>{c.name}</a>)}
+              </div>
+              <div style="display:flex;flex-direction:column;gap:10px">
+                <p class="kicker" style="margin-bottom:6px">بر اساس مرحله</p>
+                {cat.categories.map((c) => <a href={`/shop/${c.slug}`}>{c.name}</a>)}
+              </div>
+              <div style="display:flex;flex-direction:column;gap:10px">
+                <p class="kicker" style="margin-bottom:6px">بر اساس ترکیب</p>
+                {cat.ingredients.slice(0, 6).map((i) => <a href={`/ingredients/${i.slug}`}>{i.nameFa}</a>)}
+              </div>
+              <a href="/quiz" style="background:#F4F4F2;padding:24px;display:flex;flex-direction:column;justify-content:space-between;gap:18px;text-decoration:none">
+                <span style="font-size:12px;font-weight:600;color:#5C5C5C">ابزار</span>
+                <span style="font-size:22px;font-weight:700;line-height:1.5">روتینت را در ۶۰ ثانیه بساز.</span>
+                <span class="ulink">شروع روتین‌ساز <Fragment set:html={arrow} /></span>
+              </a>
+            </div>
+          </div>
+        </div>
+        {links.map((l) => <a class:list={['navbtn', { on: active === l.key }]} href={l.href}>{l.label}</a>)}
+      </nav>
+    </div>
+    <div style="display:flex;align-items:center;justify-content:flex-end">
+      <a class="icon-btn hide-sm" href="/shop#q" aria-label="جستجو">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7.5"></circle><path d="m20.5 20.5-4-4"></path></svg>
+      </a>
+      <a class="icon-btn hide-sm" href="/account/wishlist" aria-label="علاقه‌مندی‌ها">
+        <svg width="20" height="20" viewBox="0 0 24 24" class="heart" aria-hidden="true"><path d="M19 14c1.5-1.5 3-3.2 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.8 0-3 .5-4.5 2-1.5-1.5-2.7-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4 3 5.5l7 7Z"></path></svg>
+        <span class="count" data-wish-count hidden></span>
+      </a>
+      <a class="icon-btn hide-sm" href="/account" aria-label="حساب کاربری">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="8" r="4.5"></circle><path d="M20 21a8 8 0 0 0-16 0"></path></svg>
+      </a>
+      <a class="icon-btn" href="/cart" aria-label="سبد خرید" data-open-cart>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 7h14l-1 14H6L5 7Z"></path><path d="M9 10V6a3 3 0 0 1 6 0v4"></path></svg>
+        <span class="count" data-cart-count hidden></span>
+      </a>
+    </div>
+  </div>
+
+  <nav id="mobile-menu" class="wrap" aria-label="منوی موبایل" hidden style="flex-direction:column;padding-top:4px;padding-bottom:16px;border-top:1px solid #E5E5E3">
+    <a href="/shop" style="display:block;padding:14px 0;border-bottom:1px solid #EFEFED;font-size:16px">مراقبت پوست</a>
+    {links.map((l) => <a href={l.href} style="display:block;padding:14px 0;border-bottom:1px solid #EFEFED;font-size:16px">{l.label}</a>)}
+    <a href="/account" style="display:block;padding:14px 0;font-size:16px">حساب کاربری</a>
+  </nav>
+</header>
+
+<style>
+  .mega-wrap { position: static; }
+  .mega { display: none; position: absolute; top: 100%; left: 0; right: 0; background: #FFFFFF; border-top: 1px solid #E5E5E3; border-bottom: 1px solid #E5E5E3; box-shadow: 0 24px 40px -30px rgba(0,0,0,.35); animation: fadeIn .2s ease; }
+  .mega-wrap:hover .mega, .mega-wrap:focus-within .mega { display: block; }
+  .mega-wrap:hover > .navbtn, .mega-wrap:focus-within > .navbtn { border-bottom-color: #111111; }
+</style>

@@ -1,0 +1,48 @@
+# Production stack for one Iranian VPS (2 vCPU / 4 GB RAM is plenty to start).
+#   cp .env.example .env   # fill in real values
+#   docker compose build --build-arg REGISTRY=docker.arvancloud.ir/
+#   docker compose up -d
+services:
+  app:
+    build: { context: ., args: { REGISTRY: '${REGISTRY:-}', SITE_URL: '${SITE_URL}' } }
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://lumiere:${POSTGRES_PASSWORD}@db:5432/lumiere
+      MEDIA_DIR: /media
+    volumes: [media:/media]
+    depends_on: { db: { condition: service_healthy } }
+    mem_limit: 512m
+
+  db:
+    image: ${REGISTRY:-}postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: lumiere
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: lumiere
+    # Tuned for ~1 GB of the server's RAM.
+    command: >
+      postgres -c shared_buffers=256MB -c effective_cache_size=768MB -c work_mem=8MB
+               -c maintenance_work_mem=64MB -c max_connections=40 -c wal_compression=on
+    volumes: [pgdata:/var/lib/postgresql/data, ./backups:/backups]
+    healthcheck: { test: ['CMD-SHELL', 'pg_isready -U lumiere'], interval: 5s, retries: 10 }
+    mem_limit: 1g
+
+  nginx:
+    image: ${REGISTRY:-}nginx:1.27-alpine
+    restart: unless-stopped
+    ports: ['80:80', '443:443']
+    volumes:
+      - ./deploy/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./deploy/proxy_params_lumiere:/etc/nginx/proxy_params_lumiere:ro
+      - media:/media:ro
+      - ./deploy/certs:/etc/nginx/certs:ro
+      - nginxcache:/var/cache/nginx
+    depends_on: [app]
+    mem_limit: 128m
+
+volumes:
+  pgdata:
+  media:
+  nginxcache:

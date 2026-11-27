@@ -1,0 +1,96 @@
+---
+import AdminLayout from '~/layouts/AdminLayout.astro';
+import { eq } from 'drizzle-orm';
+import { db, sql, schema as s } from '~/db';
+import { str } from '~/lib/admin';
+import { fa, jalaliDate } from '~/lib/format';
+import { getSettings } from '~/lib/settings';
+import { notify } from '~/lib/sms';
+import { KIND_LABEL } from '~/lib/consult';
+
+const TZ = 'Asia/Tehran';
+const tehranToday = new Intl.DateTimeFormat('en-CA', { timeZone: TZ }).format(new Date()); // YYYY-MM-DD
+const day = /^\d{4}-\d{2}-\d{2}$/.test(Astro.url.searchParams.get('day') ?? '') ? Astro.url.searchParams.get('day')! : tehranToday;
+
+if (Astro.request.method === 'POST') {
+  const f = await Astro.request.formData();
+  const id = Number(f.get('id'));
+  const action = str(f.get('action'));
+  if (action === 'expert') {
+    await db.update(s.consultations).set({ expert: str(f.get('expert')) || null }).where(eq(s.consultations.id, id));
+  } else if (action === 'link') {
+    const link = str(f.get('meetingLink'));
+    if (link && !/^https?:\/\/\S+$/.test(link)) return Astro.redirect(`/admin/consultations?day=${day}&err=${encodeURIComponent('لینک باید با http:// یا https:// شروع شود.')}`, 303);
+    const [c] = await db.update(s.consultations).set({ meetingLink: link || null }).where(eq(s.consultations.id, id)).returning();
+    if (c && link) notify(c.phone, `لینک جلسه‌ی مشاوره‌ی LUMIÈRE (${jalaliDate(c.startsAt, { month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}): ${link}`);
+    return Astro.redirect(`/admin/consultations?day=${day}&ok=${encodeURIComponent(link ? 'لینک ذخیره و برای مشتری پیامک شد.' : 'لینک حذف شد.')}`, 303);
+  } else if (['done', 'noshow', 'canceled'].includes(action)) {
+    const [c] = await db.update(s.consultations).set({ status: action }).where(eq(s.consultations.id, id)).returning();
+    if (c && action === 'canceled') notify(c.phone, `وقت مشاوره‌ی شما در LUMIÈRE (${jalaliDate(c.startsAt, { month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}) لغو شد. برای رزرو دوباره به سایت مراجعه کنید.`);
+  }
+  return Astro.redirect(`/admin/consultations?day=${day}`, 303);
+}
+
+const { experts } = await getSettings();
+const rows = await sql<{ id: number; starts_at: string; name: string; phone: string; kind: string; topic: string | null; note: string | null; status: string; expert: string | null; meeting_link: string | null }[]>`
+  SELECT id, starts_at, name, phone, kind, topic, note, status, expert, meeting_link FROM consultations
+  WHERE (starts_at AT TIME ZONE ${TZ})::date = ${day}::date ORDER BY starts_at`;
+const shift = (n: number) => { const d = new Date(`${day}T12:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
+const KIND = KIND_LABEL;
+const STATUS: Record<string, [string, string]> = { booked: ['پیش رو', 's-pending'], done: ['انجام شد', 's-delivered'], noshow: ['غیبت', 's-canceled'], canceled: ['لغو شده', 's-canceled'] };
+const open = rows.filter((r) => r.status === 'booked').length;
+---
+<AdminLayout title="مشاوره‌ها" section="consults">
+  <section class="panel">
+    <div class="ph" style="flex-wrap:wrap">
+      <h2>برنامه‌ی مشاوره — {jalaliDate(new Date(`${day}T12:00:00+03:30`), { weekday: 'long', day: 'numeric', month: 'long' })}</h2>
+      <div style="display:flex;gap:8px;align-items:center;font-size:13px">
+        <span class="mute">{fa(open)} جلسه‌ی باقی‌مانده</span>
+        <a class="btn btn-line btn-sm" href={`?day=${shift(-1)}`}>روز قبل</a>
+        {day !== tehranToday && <a class="btn btn-line btn-sm" href="?">امروز</a>}
+        <a class="btn btn-line btn-sm" href={`?day=${shift(1)}`}>روز بعد</a>
+      </div>
+    </div>
+    <div class="scroll-x">
+      <table class="tbl">
+        <thead><tr><th scope="col">ساعت</th><th scope="col">مشتری</th><th scope="col">نوع</th><th scope="col">موضوع</th><th scope="col">کارشناس</th><th scope="col">وضعیت</th><th scope="col"></th></tr></thead>
+        <tbody>
+          {rows.map((c) => (
+            <tr>
+              <td style="font-weight:700">{jalaliDate(c.starts_at, { hour: '2-digit', minute: '2-digit' })}</td>
+              <td>{c.name}<a class="en r mute" href={`tel:${c.phone}`} style="display:block;font-size:12px">{c.phone}</a></td>
+              <td>{KIND[c.kind] ?? c.kind}</td>
+              <td style="max-width:260px">{c.topic ?? '—'}{c.note && <span class="mute" style="display:block;font-size:12px;line-height:1.7">{c.note}</span>}
+                {c.kind === 'video' && c.status === 'booked' && (
+                  <form method="post" style="display:flex;gap:6px;margin-top:6px"><input type="hidden" name="id" value={c.id} /><input type="hidden" name="action" value="link" />
+                    <input class="input en" name="meetingLink" value={c.meeting_link ?? ''} placeholder="https://… لینک جلسه" aria-label={`لینک جلسه‌ی ${c.name}`} style="min-height:32px;font-size:12px;text-align:left" />
+                    <button class="btn btn-line btn-sm">ذخیره</button>
+                  </form>
+                )}
+              </td>
+              <td>
+                <form method="post"><input type="hidden" name="id" value={c.id} /><input type="hidden" name="action" value="expert" />
+                  <select class="input" name="expert" aria-label={`کارشناس جلسه‌ی ${c.name}`} data-autosubmit style="min-height:34px;min-width:120px">
+                    <option value="">تعیین نشده</option>
+                    {[...new Set([...experts, ...(c.expert ? [c.expert] : [])])].map((e) => <option selected={c.expert === e}>{e}</option>)}
+                  </select>
+                </form>
+              </td>
+              <td><span class={`st ${STATUS[c.status]?.[1] ?? ''}`}>{STATUS[c.status]?.[0] ?? c.status}</span></td>
+              <td style="white-space:nowrap">
+                {c.status === 'booked' && (
+                  <form method="post" style="display:flex;gap:6px"><input type="hidden" name="id" value={c.id} />
+                    <button class="btn btn-dark btn-sm" name="action" value="done">انجام شد</button>
+                    <button class="btn btn-line btn-sm" name="action" value="noshow">غیبت</button>
+                    <button class="btn btn-danger btn-sm" name="action" value="canceled" data-confirm="جلسه لغو شود و به مشتری پیامک برود؟">لغو</button>
+                  </form>
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+    {rows.length === 0 && <p style="margin:0;padding:32px;text-align:center;font-size:14px;color:#5C5C5C">برای این روز مشاوره‌ای رزرو نشده است.</p>}
+  </section>
+</AdminLayout>
