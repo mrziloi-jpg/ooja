@@ -37,18 +37,23 @@ Memory caps in compose: db 1 GB, app 512 MB, nginx 128 MB.
   - use an Iranian npm mirror by adding `RUN npm config set registry <mirror-url>` before `npm ci` in the Dockerfile (**ASK** the owner which mirror they trust).
 - The app makes outbound HTTPS calls only to `api.kavenegar.com` (SMS) and `payment.zarinpal.com` / `sandbox.zarinpal.com` (payments), both Iranian services. No fonts, scripts or assets are loaded from outside Iran.
 
-## 4. Copy the code to the server
+## 4. Get the code onto the server
 
-The project is not a git repository. Copy it with rsync, excluding local artifacts:
+The code is on GitHub: `https://github.com/mrziloi-jpg/ooja` (branch `main`). Clone it into `/opt/lumiere`:
 
 ```sh
-rsync -az --delete \
-  --exclude node_modules --exclude dist --exclude .astro --exclude .env \
-  --exclude media --exclude backups --exclude deploy/certs \
-  ./ user@SERVER:/opt/lumiere/
+sudo mkdir -p /opt/lumiere && sudo chown "$USER" /opt/lumiere
+git clone https://github.com/mrziloi-jpg/ooja.git /opt/lumiere
 ```
 
 All following commands run in `/opt/lumiere` on the server. (The folder name matters: Compose names the network and volumes after it, e.g. `lumiere_default`, `lumiere_media`.)
+
+The repository never contains secrets: `.env`, `deploy/certs/`, `media/` and `backups/` are git-ignored and live only on the server. If GitHub is unreachable from the server, copy the code with rsync from a machine that has a checkout, using the same exclusions:
+
+```sh
+rsync -az --delete --exclude .git --exclude node_modules --exclude dist --exclude .astro --exclude .env \
+  --exclude media --exclude backups --exclude deploy/certs ./ user@SERVER:/opt/lumiere/
+```
 
 ## 5. Configure `.env`
 
@@ -182,7 +187,7 @@ docker run --rm -v lumiere_media:/m -v $PWD/backups:/b alpine tar czf /b/media.t
 ## 11. Updating to a new version
 
 ```sh
-# from the dev machine: same rsync as in step 4, then on the server:
+git pull                         # or the rsync fallback from step 4
 docker compose build --build-arg REGISTRY=docker.arvancloud.ir/ app
 docker compose up -d app         # migrations run automatically on start
 docker compose exec nginx sh -c 'rm -rf /var/cache/nginx/pages/*' && docker compose exec nginx nginx -s reload   # flush page cache
