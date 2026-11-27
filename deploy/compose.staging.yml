@@ -1,0 +1,33 @@
+# Staging override (Compose project "lumiere-staging", directory /opt/lumiere-staging). Use through: deploy/dc.sh staging ...
+# Needs Docker Compose >= 2.24.4 for "!reset".
+#
+# Smaller memory caps than production. Each value can be overridden in /opt/lumiere-staging/.env
+# without editing this file, e.g. STAGING_DB_MEM=768m.
+services:
+  app:
+    environment:
+      # Staging can never take real payments or send real SMS, whatever its .env says.
+      PAYMENT_PROVIDER: mock
+      SMS_PROVIDER: console
+    # The image's default command caps Node's heap at 384 MB, which does not fit a 384 MB container.
+    # Same command (migrations first, then the server), with a smaller heap.
+    command: ['sh', '-c', 'node scripts/migrate.mjs && node --max-old-space-size=${STAGING_NODE_HEAP_MB:-256} dist/server/entry.mjs']
+    mem_limit: ${STAGING_APP_MEM:-384m}
+
+  db:
+    command: >
+      postgres -c shared_buffers=${STAGING_PG_SHARED_BUFFERS:-128MB} -c effective_cache_size=${STAGING_PG_CACHE_SIZE:-384MB}
+               -c work_mem=4MB -c maintenance_work_mem=32MB -c max_connections=20 -c wal_compression=on
+    mem_limit: ${STAGING_DB_MEM:-512m}
+
+  nginx:
+    ports: !reset []
+    networks:
+      default: {}
+      edge:
+        aliases: [lumiere-staging-nginx]   # the name deploy/edge/sites/staging.conf proxies to
+    mem_limit: ${STAGING_NGINX_MEM:-64m}
+
+networks:
+  edge:
+    external: true

@@ -12,3 +12,13 @@ deploy/certs
 *.key
 *.dump
 .DS_Store
+# Deployment state that lives only on the server
+.env.release
+.smoke-auth
+deploy/edge/auth/*
+!deploy/edge/auth/.gitkeep
+deploy/edge/enabled/*
+!deploy/edge/enabled/.gitkeep
+deploy/edge/state/*
+!deploy/edge/state/.gitkeep
+*.htpasswd

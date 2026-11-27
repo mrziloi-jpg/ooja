@@ -1,0 +1,15 @@
+# Production override (Compose project "lumiere", directory /opt/lumiere). Use through: deploy/dc.sh prod ...
+# Needs Docker Compose >= 2.24.4 for "!reset".
+services:
+  nginx:
+    # No host ports: only the edge proxy publishes 80/443 and reaches this nginx over the "edge" network.
+    ports: !reset []
+    networks:
+      default: {}
+      edge:
+        aliases: [lumiere-prod-nginx]   # the name deploy/edge/sites/prod.conf proxies to
+  # Memory caps stay as in docker-compose.yml: db 1g, app 512m, nginx 128m.
+
+networks:
+  edge:
+    external: true

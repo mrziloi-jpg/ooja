@@ -1,0 +1,27 @@
+# Shared edge proxy: the ONLY container that publishes ports 80/443 on the server.
+# It terminates TLS for production (oojashop.ir, www) and staging (staging.oojashop.ir) and proxies to each
+# environment's inner nginx over the external "edge" Docker network.
+#
+# Runs from the production checkout:  docker compose -f /opt/lumiere/deploy/edge/compose.yml up -d
+# REGISTRY (Docker Hub mirror) is read from deploy/edge/.env (copy .env.example).
+name: lumiere-edge
+
+services:
+  nginx:
+    image: ${REGISTRY:-}nginx:1.27-alpine
+    restart: unless-stopped
+    ports: ['80:80', '443:443']
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./snippets:/etc/nginx/snippets:ro
+      - ./enabled:/etc/nginx/enabled:ro      # TLS site blocks, enabled with site.sh once a certificate exists
+      - ./state:/etc/nginx/state:ro          # prod-auth.conf present = production behind basic auth (prod-auth.sh)
+      - ./auth:/etc/nginx/auth:ro            # htpasswd files (htpasswd.sh); git-ignored
+      - /etc/letsencrypt:/etc/letsencrypt:ro # certificates issued by certbot on the host
+      - /var/www/certbot:/var/www/certbot:ro # certbot --webroot challenge files
+    networks: [edge]
+    mem_limit: 64m
+
+networks:
+  edge:
+    external: true
