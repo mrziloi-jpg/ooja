@@ -10,6 +10,9 @@ export const config = {
   kavenegarKey: env('KAVENEGAR_API_KEY'),
   kavenegarOtpTemplate: env('KAVENEGAR_OTP_TEMPLATE', 'lumiere-otp'),
   kavenegarSender: env('KAVENEGAR_SENDER'),
+  // Testing only (staging): every login code is this value. Ignored unless it is 5 digits and SMS is
+  // "console", so it can never apply while real SMS goes out. compose.prod.yml forces it empty.
+  fixedOtpCode: /^\d{5}$/.test(env('FIXED_OTP_CODE')) && env('SMS_PROVIDER', 'console') === 'console' ? env('FIXED_OTP_CODE') : '',
   adminPhones: env('ADMIN_PHONES').split(',').map((s) => s.trim()).filter(Boolean),
   mediaDir: env('MEDIA_DIR', './media'),
 };

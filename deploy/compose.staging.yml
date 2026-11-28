@@ -9,6 +9,9 @@ services:
       # Staging can never take real payments or send real SMS, whatever its .env says.
       PAYMENT_PROVIDER: mock
       SMS_PROVIDER: console
+      # Every login code on staging is 11111 (no need to read the log). To turn it off, put an empty
+      # FIXED_OTP_CODE= line in /opt/lumiere-staging/.env and run: deploy/dc.sh staging up -d app
+      FIXED_OTP_CODE: ${FIXED_OTP_CODE-11111}
     # The image's default command caps Node's heap at 384 MB, which does not fit a 384 MB container.
     # Same command (migrations first, then the server), with a smaller heap.
     command: ['sh', '-c', 'node scripts/migrate.mjs && node --max-old-space-size=${STAGING_NODE_HEAP_MB:-256} dist/server/entry.mjs']

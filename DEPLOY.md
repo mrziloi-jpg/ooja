@@ -110,6 +110,7 @@ Each environment directory has its own `.env` (`chmod 600`), copied from `.env.e
 | `PAYMENT_PROVIDER` | `mock` before launch, `zarinpal` at launch | Ignored (forced to `mock`) |
 | `ZARINPAL_MERCHANT_ID` / `ZARINPAL_SANDBOX` | **ASK** / `false` at launch | Not needed |
 | `SMS_PROVIDER` | `kavenegar` (or `console` before launch) | Ignored (forced to `console`; OTP codes appear in `sh deploy/dc.sh staging logs app`) |
+| `FIXED_OTP_CODE` | Not used (forced empty by `compose.prod.yml`) | **Temporary:** every staging login code is `11111` by default. Admin rights still need the number in `ADMIN_PHONES`. To turn it off, add an empty `FIXED_OTP_CODE=` line and run `sh deploy/dc.sh staging up -d app`. |
 | `KAVENEGAR_API_KEY` / `KAVENEGAR_OTP_TEMPLATE` / `KAVENEGAR_SENDER` | **ASK** (template default `lumiere-otp`) | Not needed |
 | `ADMIN_PHONES` | Comma-separated admin mobile numbers, **ASK** | Who may log in as admin on staging. These users also **keep their real data** when staging is refreshed (§9). |
 | `BACKUP_RCLONE_REMOTE` | Off-server backup target, e.g. `remote:bucket/lumiere`, **ASK** | Leave unset |

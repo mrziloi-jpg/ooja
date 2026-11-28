@@ -21,7 +21,7 @@ export async function requestOtp(phone: string, ip: string): Promise<{ ok: true 
   if (!(await rateLimit(`otp:phone-day:${phone}`, 10, 86400))) return { ok: false, error: 'تعداد درخواست‌ها بیش از حد مجاز است. فردا دوباره تلاش کنید.' };
   if (!(await rateLimit(`otp:ip:${ip}`, 20, 3600))) return { ok: false, error: 'تعداد درخواست‌ها بیش از حد مجاز است.' };
 
-  const code = String(randomInt(10000, 100000));
+  const code = config.fixedOtpCode || String(randomInt(10000, 100000));
   await db.delete(s.otpCodes).where(eq(s.otpCodes.phone, phone));
   await db.insert(s.otpCodes).values({ phone, codeHash: sha256(`${phone}:${code}`), expiresAt: new Date(Date.now() + OTP_TTL_SEC * 1000) });
   await sendOtp(phone, code);

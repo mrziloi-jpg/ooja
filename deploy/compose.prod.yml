@@ -1,6 +1,10 @@
 # Production override (Compose project "lumiere", directory /opt/lumiere). Use through: deploy/dc.sh prod ...
 # Needs Docker Compose >= 2.24.4 for "!reset".
 services:
+  app:
+    environment:
+      # The staging-only fixed login code can never apply to production, whatever .env says.
+      FIXED_OTP_CODE: ''
   nginx:
     # No host ports: only the edge proxy publishes 80/443 and reaches this nginx over the "edge" network.
     ports: !reset []
